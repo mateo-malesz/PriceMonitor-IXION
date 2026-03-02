@@ -1,4 +1,4 @@
-# System Monitorowania Cen Konkurencji - Praca Inżynierska
+# PriceMonitor - System Monitorowania Cen Konkurencji
 
 Aplikacja webowa służąca do automatycznego monitorowania cen produktów w sklepach internetowych konkurencji. System pozwala na zarządzanie projektami, importowanie produktów, wizualizację historii cen na wykresach oraz generowanie raportów.
 
