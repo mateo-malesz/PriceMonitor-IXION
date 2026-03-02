@@ -5,7 +5,6 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from urllib.parse import urlparse
 from flask_mail import Mail, Message
 from flask import make_response
-from scraper import get_current_price
 import xml.etree.ElementTree as ET
 from flask_apscheduler import APScheduler
 from datetime import datetime, date
@@ -177,7 +176,6 @@ class PriceHistory(db.Model):
     price = db.Column(db.Float, nullable=False)
     availability = db.Column(db.Boolean, default=True)
     scraped_at = db.Column(db.DateTime, default=datetime.utcnow)
-    availability = db.Column(db.Boolean, default=True)
 
 # --- ZADANIE ---
 class ScheduledTask(db.Model):
@@ -640,7 +638,7 @@ def add_competitor_url(project_id, product_id):
 @app.route('/project/<int:project_id>/product/<int:product_id>/refresh', methods=['POST'])
 @login_required
 def refresh_prices(project_id, product_id):
-    product = Project.query.get_or_404(project_id)
+    project = Project.query.get_or_404(project_id)
     product = Product.query.get_or_404(product_id)
 
     updated_count = 0
