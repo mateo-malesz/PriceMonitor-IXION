@@ -1,0 +1,95 @@
+{% extends 'base.html' %}
+
+{% block title %}Nowy Projekt{% endblock %}
+
+{% block layout %}
+<div class="vh-100 overflow-auto bg-light">
+<div class="container d-flex justify-content-center align-items-center py-5">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    <div class="container mt-3">
+      {% for category, message in messages %}
+        <div class="alert alert-{{ 'danger' if category == 'error' else 'success' }} alert-dismissible fade show" role="alert">
+          {{ message }}
+          <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+{% endwith %}
+    <div class="card shadow border-0 p-4" style="width: 700px;">
+        <div class="card-body">
+            <h3 class="card-title text-center mb-4 fw-bold">Stwórz nowy projekt</h3>
+
+            <form method="POST">
+                <h5 class="mb-3 border-bottom pb-2">Dane podstawowe</h5>
+                <div class="mb-3">
+                    <label class="form-label">Nazwa Projektu <span class="text-danger">*</span></label>
+                    <input type="text" name="name" class="form-control form-control-lg" required placeholder="Moja Firma">
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label">Domena (opcjonalne)</label>
+                    <input type="text" name="domain" class="form-control" placeholder="np. sklep.pl">
+                </div>
+
+                <h5 class="mt-4 mb-3 border-bottom pb-2">Import Produktów</h5>
+
+                <div class="mb-3">
+                    <label class="form-label mb-2 text-muted small text-uppercase fw-bold">Wybierz źródło danych:</label>
+
+                    <div class="form-check card p-3 mb-2 border-primary-subtle bg-light-subtle">
+                        <input class="form-check-input" type="radio" name="import_method" id="methodUrl" value="url" checked onchange="toggleImportFields()">
+                        <label class="form-check-label w-100 fw-bold" for="methodUrl">
+                            <i class="bi bi-cloud-download me-2"></i> Link do pliku XML (Google Merchant)
+                            <div class="small text-muted fw-normal mt-1">Pobierz produkty automatycznie z feedu XML.</div>
+                        </label>
+                    </div>
+
+                    <div class="form-check card p-3 mb-2">
+                        <input class="form-check-input" type="radio" name="import_method" id="methodCsv" value="csv" disabled>
+                        <label class="form-check-label w-100 text-muted" for="methodCsv">
+                            <i class="bi bi-file-earmark-spreadsheet me-2"></i> Plik CSV (Wkrótce)
+                        </label>
+                    </div>
+
+                    <div class="form-check card p-3">
+                        <input class="form-check-input" type="radio" name="import_method" id="methodNone" value="none" onchange="toggleImportFields()">
+                        <label class="form-check-label w-100" for="methodNone">
+                            <i class="bi bi-pencil-square me-2"></i> Ręczne wprowadzanie
+                            <div class="small text-muted fw-normal mt-1">Stwórz pusty projekt i dodawaj produkty ręcznie.</div>
+                        </label>
+                    </div>
+                </div>
+
+                <div id="urlInputSection" class="mb-4">
+                    <label class="form-label fw-bold">Link do pliku XML / RSS</label>
+                    <input type="url" name="feed_url" class="form-control" placeholder="https://twojsklep.pl/feed/google_merchant.xml">
+                    <div class="form-text">System pobierze nazwę, cenę, SKU i zdjęcia.</div>
+                </div>
+
+                <div class="d-grid gap-2 mt-4">
+                    <button type="submit" class="btn btn-primary btn-lg">Utwórz Projekt</button>
+                    <a href="{{ url_for('projects') }}" class="btn btn-light text-muted">Anuluj</a>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+</div>
+
+<script>
+    function toggleImportFields() {
+        const isUrlSelected = document.getElementById('methodUrl').checked;
+        const urlSection = document.getElementById('urlInputSection');
+
+        if (isUrlSelected) {
+            urlSection.style.display = 'block';
+        } else {
+            urlSection.style.display = 'none';
+        }
+    }
+    // Uruchom raz na starcie
+    toggleImportFields();
+</script>
+{% endblock %}

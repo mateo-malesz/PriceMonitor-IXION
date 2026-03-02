@@ -1,0 +1,17 @@
+body {
+    overflow: hidden;
+}
+
+#sidebar-wrapper {
+    width: 280px;
+    height: 100vh;
+    overflow-y: auto;
+    border-right: 1px solid #dee2e6;
+}
+
+#page-content-wrapper {
+    flex-grow: 1;
+    height: 100vh;
+    overflow-y: auto;
+    background-color: #f8f9fa;
+}

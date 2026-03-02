@@ -1,0 +1,91 @@
+{% extends 'base.html' %}
+
+{% block title %}Wybierz Projekt{% endblock %}
+
+{% block layout %}
+<div class="vh-100 overflow-auto bg-light">
+<div class="container py-5">
+
+    <div class="text-center mb-5">
+        <h1 class="fw-bold">Twoje Projekty</h1>
+        <p class="text-muted">Wybierz domenę, nad którą chcesz pracować</p>
+    </div>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    <div class="container mt-3">
+      {% for category, message in messages %}
+        <div class="alert alert-{{ 'danger' if category == 'error' else 'success' }} alert-dismissible fade show" role="alert">
+          {{ message }}
+          <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+{% endwith %}
+
+    <div class="row g-4 justify-content-center">
+
+        {% for project in projects %}
+        <div class="col-md-4 col-sm-6">
+            <div class="card h-100 shadow-sm border-0 hover-effect position-relative">
+
+                <form method="POST"
+                      action="{{ url_for('delete_project', project_id=project.id) }}"
+                      onsubmit="return confirm('UWAGA: Usunięcie projektu usunie WSZYSTKIE produkty i historię cen w nim zawartą. Czy na pewno kontynuować?');"
+                      class="position-absolute top-0 end-0 m-2"
+                      style="z-index: 10;"> <button type="submit" class="btn btn-sm btn-light text-danger shadow-sm rounded-circle" style="width: 32px; height: 32px; padding: 0;" title="Usuń projekt">
+                        <i class="bi bi-trash"></i>
+                    </button>
+                </form>
+
+                <div class="card-body text-center d-flex flex-column justify-content-center p-5">
+                    <div class="mb-3 d-flex justify-content-center align-items-center" style="height: 50px;">
+                        {% if project.domain %}
+                            <img src="https://www.google.com/s2/favicons?domain={{ project.domain }}&sz=64"
+                                 alt="Logo {{ project.name }}"
+                                 class="rounded-circle shadow-sm border border-light"
+                                 style="width: 48px; height: 48px; object-fit: contain; background-color: white; padding: 2px;"
+                                 onerror="this.outerHTML='<i class=\'bi bi-briefcase fs-1 text-primary\'></i>'">
+                        {% else %}
+                            <i class="bi bi-briefcase fs-1 text-primary"></i>
+                        {% endif %}
+                    </div>
+                    <h4 class="card-title fw-bold">{{ project.name }}</h4>
+                    <p class="text-muted small mb-4">{{ project.domain or 'Brak domeny' }}</p>
+
+                    <a href="{{ url_for('project_overview', project_id=project.id) }}" class="btn btn-outline-primary stretched-link">
+                        Otwórz Dashboard
+                    </a>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+
+        <div class="col-md-4 col-sm-6">
+            <div class="card h-100 border-2 border-dashed shadow-none" style="background-color: #f8f9fa; border-color: #dee2e6;">
+                <div class="card-body text-center d-flex flex-column justify-content-center p-5">
+                    <div class="mb-3">
+                        <i class="bi bi-plus-circle fs-1 text-muted"></i>
+                    </div>
+                    <h5 class="card-title text-muted">Nowy Projekt</h5>
+                    <a href="{{ url_for('create_project') }}" class="stretched-link"></a>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</div>
+</div>
+
+<style>
+    .hover-effect:hover {
+        transform: translateY(-5px);
+        transition: transform 0.3s ease;
+        box-shadow: 0 .5rem 1rem rgba(0,0,0,.15)!important;
+    }
+    .border-dashed {
+        border-style: dashed !important;
+    }
+</style>
+{% endblock %}

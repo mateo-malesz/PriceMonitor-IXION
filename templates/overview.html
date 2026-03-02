@@ -1,0 +1,150 @@
+{% extends 'base.html' %}
+
+{% block title %}Panel Główny - {{ project.name }}{% endblock %}
+
+{% block content %}
+              <div class="d-flex justify-content-between align-items-center mb-4">
+            <div>
+                <h2 class="fw-bold mb-0">Dzień dobry! 👋</h2>
+                <p class="text-muted">Oto co słychać w Twoim monitoringu.</p>
+            </div>
+            <div class="text-end">
+                <span class="badge bg-white text-dark border p-2 shadow-sm">
+                    <i class="bi bi-clock me-1"></i> Ostatnia aktywność: 
+                    {% if last_scan_time %}
+                        {{ last_scan_time.strftime('%H:%M') }}
+                    {% else %}
+                        Brak danych
+                    {% endif %}
+                </span>
+            </div>
+        </div>
+
+        <div class="row g-3 mb-4">
+            <div class="col-md-4">
+                <div class="card shadow-sm border-0 border-start border-4 border-primary h-100">
+                    <div class="card-body d-flex align-items-center">
+                        <div class="bg-primary bg-opacity-10 p-3 rounded-circle me-3 text-primary">
+                            <i class="bi bi-activity fs-4"></i>
+                        </div>
+                        <div>
+                            <div class="text-muted small text-uppercase fw-bold">Przeskanowano dzisiaj</div>
+                            <div class="fs-3 fw-bold">{{ scans_today }} <span class="fs-6 text-muted fw-normal">ofert</span></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-4">
+                <div class="card shadow-sm border-0 border-start border-4 border-danger h-100 position-relative hover-shadow transition">
+                    <div class="card-body d-flex align-items-center">
+                        <div class="bg-danger bg-opacity-10 p-3 rounded-circle me-3 text-danger">
+                            <i class="bi bi-exclamation-triangle fs-4"></i>
+                        </div>
+                        <div>
+                            <div class="text-muted small text-uppercase fw-bold">Problemy z linkami</div>
+                            <div class="fs-3 fw-bold">
+                                {{ errors_count }}
+                                <span class="fs-6 text-muted fw-normal">do poprawy</span>
+                            </div>
+                        </div>
+                        <a href="{{ url_for('project_dashboard', project_id=project.id, filter='errors') }}" class="stretched-link"></a>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-4">
+                <div class="card shadow-sm border-0 border-start border-4 border-success h-100 bg-success text-white" style="background: linear-gradient(45deg, #198754, #20c997);">
+                    <div class="card-body d-flex flex-column justify-content-center align-items-start">
+                        <h5 class="fw-bold mb-1">Wszystko działa?</h5>
+                        <p class="small opacity-75 mb-2">Możesz wygenerować raport dla zarządu.</p>
+                        <a href="{{ url_for('project_reports', project_id=project.id) }}" class="btn btn-sm btn-light text-success fw-bold stretched-link">
+                            <i class="bi bi-file-earmark-arrow-down me-1"></i> Pobierz CSV
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-md-8">
+                <div class="card shadow-sm border-0">
+                    <div class="card-header bg-white py-3">
+                        <h5 class="card-title fw-bold mb-0">
+                            <i class="bi bi-hourglass-split me-2 text-primary"></i>Ostatnia Aktywność
+                        </h5>
+                    </div>
+                    <div class="card-body p-0">
+                        <div class="list-group list-group-flush">
+                            {% for history in recent_activity %}
+                            <div class="list-group-item px-4 py-3">
+                                <div class="d-flex w-100 justify-content-between align-items-center">
+                                    <div class="d-flex align-items-center">
+                                        <div class="me-3 text-center" style="width: 40px;">
+                                            <span class="badge bg-light text-dark border">{{ history.mapping.shop.name[:2].upper() }}</span>
+                                        </div>
+                                        <div>
+                                            <h6 class="mb-0 fw-bold">{{ history.mapping.product.title }}</h6>
+                                            <small class="text-muted">
+                                                Sklep: <span class="text-dark">{{ history.mapping.shop.name }}</span> 
+                                                &bull; Cena: <strong>{{ history.price }} PLN</strong>
+                                            </small>
+                                        </div>
+                                    </div>
+                                    <small class="text-muted text-end" style="min-width: 80px;">
+                                        {{ history.scraped_at.strftime('%H:%M') }}<br>
+                                        <span style="font-size: 0.7em;">{{ history.scraped_at.strftime('%Y-%m-%d') }}</span>
+                                    </small>
+                                </div>
+                            </div>
+                            {% else %}
+                            <div class="text-center py-5 text-muted">
+                                <i class="bi bi-cup-hot display-4 mb-3"></i>
+                                <p>Jeszcze nic się nie działo. Uruchom skaner!</p>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    <div class="card-footer bg-light text-center">
+                        <a href="{{ url_for('project_reports', project_id=project.id) }}" class="text-decoration-none small fw-bold">Zobacz pełną historię &rarr;</a>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-4">
+                <div class="card shadow-sm border-0 mb-4">
+                    <div class="card-body">
+                        <h6 class="fw-bold mb-3 text-muted">Szybkie Akcje</h6>
+                        <div class="d-grid gap-2">
+                            <a href="{{ url_for('project_dashboard', project_id=project.id) }}" class="btn btn-outline-primary text-start p-3">
+                                <i class="bi bi-plus-circle-fill me-2 fs-5 align-middle"></i>
+                                <span class="align-middle fw-bold">Dodaj Produkt</span>
+                            </a>
+                            
+                            <a href="{{ url_for('project_scheduler', project_id=project.id) }}" class="btn btn-outline-dark text-start p-3">
+                                <i class="bi bi-calendar-range me-2 fs-5 align-middle"></i>
+                                <span class="align-middle fw-bold">Zaplanuj Skanowanie</span>
+                            </a>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card shadow-sm border-0 bg-dark text-white">
+                    <div class="card-body p-4">
+                        <h5 class="fw-bold mb-3"><i class="bi bi-shield-check me-2"></i>Status Systemu</h5>
+                        <ul class="list-unstyled mb-0 small opacity-75">
+                            <li class="mb-2 d-flex justify-content-between">
+                                <span>Wersja Aplikacji:</span> <strong>v2026.02.17</strong>
+                            </li>
+                            <li class="mb-2 d-flex justify-content-between">
+                                <span>Baza Danych:</span> <span class="text-success">Połączono</span>
+                            </li>
+                            <li class="d-flex justify-content-between">
+                                <span>Skaner:</span> <span class="text-success">Gotowy</span>
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+{% endblock %}

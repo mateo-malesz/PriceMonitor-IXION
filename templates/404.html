@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+
+{% block title %}404 - Zaginiono w akcji{% endblock %}
+
+{% block layout %}
+<div class="d-flex align-items-center justify-content-center vh-100 bg-light">
+    <div class="text-center">
+        <h1 class="display-1 fw-bold text-danger">404</h1>
+        <p class="fs-3"> <span class="text-danger">Oups!</span> Strona nie istnieje.</p>
+        <p class="lead">
+            Adres, który wpisałeś, to ślepa uliczka.
+        </p>
+        
+        <a href="{{ url_for('home') }}" class="btn btn-primary">Wracaj do bezpiecznej przystani</a>
+    </div>
+</div>
+{% endblock %}

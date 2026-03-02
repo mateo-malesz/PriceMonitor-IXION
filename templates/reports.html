@@ -1,0 +1,82 @@
+{% extends 'base.html' %}
+
+{% block title %}Raporty - {{ project.name }}{% endblock %}
+
+{% block content %}
+<div class="d-flex" id="wrapper">
+    <div id="page-content-wrapper" class="w-100 bg-light p-4">
+        
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <div>
+                <h2 class="fw-bold mb-1">Centrum Raportów</h2>
+                <p class="text-muted">Wygeneruj historię cen dla swoich produktów.</p>
+            </div>
+            <div class="bg-white p-2 rounded shadow-sm border">
+                <i class="bi bi-calendar-check text-primary me-2"></i>
+                <span class="text-muted small">Dzisiaj jest: {{ today }}</span>
+            </div>
+        </div>
+
+        <div class="row justify-content-center">
+            <div class="col-md-8">
+                <div class="card shadow-sm border-0">
+                    <div class="card-header bg-white py-3">
+                        <h5 class="card-title fw-bold mb-0 text-primary">
+                            <i class="bi bi-file-earmark-spreadsheet me-2"></i>Eksport do CSV
+                        </h5>
+                    </div>
+                    <div class="card-body p-4">
+                        
+                        <form method="POST" action="{{ url_for('download_report', project_id=project.id) }}">
+                            
+                            <div class="row g-3">
+                                <div class="col-md-6">
+                                    <label class="form-label fw-bold small text-muted">Data początkowa</label>
+                                    <input type="date" name="start_date" class="form-control" value="{{ start_date }}" required>
+                                </div>
+
+                                <div class="col-md-6">
+                                    <label class="form-label fw-bold small text-muted">Data końcowa</label>
+                                    <input type="date" name="end_date" class="form-control" value="{{ today }}" required>
+                                </div>
+
+                                <div class="col-12 mt-4">
+                                    <label class="form-label fw-bold small text-muted">Zakres danych</label>
+                                    <select name="brand_id" class="form-select">
+                                        <option value="all" selected>Wszystkie marki i produkty (Pełny Raport)</option>
+                                        <hr>
+                                        {% for brand in brands %}
+                                            <option value="{{ brand.id }}">Tylko marka: {{ brand.name }}</option>
+                                        {% endfor %}
+                                    </select>
+                                    <div class="form-text">
+                                        Wybierz "Wszystkie", aby pobrać kompletny zrzut historii cen dla całego projektu.
+                                    </div>
+                                </div>
+                            </div>
+
+                            <hr class="my-4">
+
+                            <div class="d-grid">
+                                <button type="submit" class="btn btn-success py-2 fw-bold">
+                                    <i class="bi bi-download me-2"></i> Pobierz Raport (.csv)
+                                </button>
+                            </div>
+
+                        </form>
+                    </div>
+                </div>
+
+                <div class="alert alert-info mt-4 shadow-sm border-0 d-flex align-items-center">
+                    <i class="bi bi-info-circle-fill fs-4 me-3"></i>
+                    <div>
+                        <strong>Wskazówka:</strong> Pobrany plik CSV możesz otworzyć bezpośrednio w programie Microsoft Excel lub Google Sheets. Dane są kodowane w UTF-8, więc polskie znaki będą wyświetlane poprawnie.
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+    </div>
+</div>
+{% endblock %}

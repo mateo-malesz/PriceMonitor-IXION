@@ -1,0 +1,22 @@
+# Wirtualne srodowisko
+venv/
+env/
+
+# Python cache (kompilowane pliki)
+__pycache__/
+*.py[cod]
+
+# Zmienne srodowiskowe (HASLA!)
+.env
+.flaskenv
+
+# Baza danych SQLite (lokalna)
+*.db
+*.sqlite3
+
+# Logi
+*.log
+
+# IDE (ustawienia edytora)
+.vscode/
+.idea/

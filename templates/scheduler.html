@@ -1,0 +1,181 @@
+{% extends 'base.html' %}
+
+{% block title %}Harmonogram - {{ project.name }}{% endblock %}
+
+{% block content %}
+<div class="d-flex" id="wrapper">
+
+    <div id="page-content-wrapper" class="w-100 bg-light p-4">
+        
+        <h2 class="fw-bold mb-4">Automatyzacja Skanowania</h2>
+
+        <div class="row">
+            <div class="col-md-5">
+                <div class="card shadow-sm border-0">
+                    <div class="card-body p-4">
+                        <h5 class="card-title fw-bold mb-3">Dodaj nowe zadanie</h5>
+                        <p class="text-muted small mb-4">Wybierz, co system ma skanować, o której godzinie i w jakie dni.</p>
+
+                        <form method="POST" action="{{ url_for('add_task', project_id=project.id) }}">
+
+                            <div class="mb-3">
+                                <label class="form-label fw-bold small text-uppercase text-muted">Zakres</label>
+                                <select name="brand_id" class="form-select">
+                                    <option value="all">Wszystkie Produkty</option>
+                                    <hr>
+                                    {% for brand in brands %}
+                                        <option value="{{ brand.id }}">Tylko marka: {{ brand.name }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+
+                            <div class="mb-3">
+                                <label class="form-label fw-bold small text-uppercase text-muted">Godzina startu</label>
+                                <input type="time" name="run_time" class="form-control" required value="08:00">
+                                <div class="form-text">Zadanie uruchomi się dokładnie o tej godzinie.</div>
+                            </div>
+
+                            <div class="mb-3">
+                                <label class="form-label fw-bold small text-uppercase text-muted">Częstotliwość</label>
+                                <div class="btn-group w-100" role="group">
+                                    <input type="radio" class="btn-check" name="frequency" id="freqDaily" value="daily" checked onchange="toggleDays(false)">
+                                    <label class="btn btn-outline-primary" for="freqDaily">Codziennie</label>
+
+                                    <input type="radio" class="btn-check" name="frequency" id="freqWeekly" value="weekly" onchange="toggleDays(true)">
+                                    <label class="btn btn-outline-primary" for="freqWeekly">Wybrane dni</label>
+                                </div>
+                            </div>
+
+                            <div class="mb-4 p-3 bg-light rounded border" id="daysContainer" style="display: none;">
+                                <label class="form-label fw-bold small mb-2 d-block text-muted">Zaznacz dni tygodnia:</label>
+                                <div class="d-flex flex-wrap gap-2">
+                                    <div class="form-check form-check-inline m-0"><input class="form-check-input" type="checkbox" name="days" value="0" id="d0"><label class="form-check-label ms-1" for="d0">Pn</label></div>
+                                    <div class="form-check form-check-inline m-0"><input class="form-check-input" type="checkbox" name="days" value="1" id="d1"><label class="form-check-label ms-1" for="d1">Wt</label></div>
+                                    <div class="form-check form-check-inline m-0"><input class="form-check-input" type="checkbox" name="days" value="2" id="d2"><label class="form-check-label ms-1" for="d2">Śr</label></div>
+                                    <div class="form-check form-check-inline m-0"><input class="form-check-input" type="checkbox" name="days" value="3" id="d3"><label class="form-check-label ms-1" for="d3">Cz</label></div>
+                                    <div class="form-check form-check-inline m-0"><input class="form-check-input" type="checkbox" name="days" value="4" id="d4"><label class="form-check-label ms-1" for="d4">Pt</label></div>
+                                    <div class="form-check form-check-inline m-0"><input class="form-check-input" type="checkbox" name="days" value="5" id="d5"><label class="form-check-label ms-1" for="d5">Sb</label></div>
+                                    <div class="form-check form-check-inline m-0"><input class="form-check-input" type="checkbox" name="days" value="6" id="d6"><label class="form-check-label ms-1 text-danger" for="d6">Nd</label></div>
+                                </div>
+                            </div>
+
+                            <button type="submit" class="btn btn-primary w-100 py-2">
+                                <i class="bi bi-plus-lg me-2"></i> Zaplanuj Skanowanie
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-7">
+                <div class="card shadow-sm border-0">
+                    <div class="card-body p-4">
+
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <h5 class="card-title fw-bold mb-0">Aktywne Zadania</h5>
+
+                            {% if tasks %}
+                                <form method="POST" action="{{ url_for('force_run_scheduler', project_id=project.id) }}">
+                                    <button type="submit" class="btn btn-warning text-dark fw-bold btn-sm">
+                                        <i class="bi bi-play-circle-fill me-2"></i>Wymuś wszystkie
+                                    </button>
+                                </form>
+                            {% endif %}
+                        </div>
+
+                        {% if tasks %}
+                            <div class="table-responsive">
+                                <table class="table align-middle">
+                                    <thead class="table-light text-uppercase small text-muted">
+                                        <tr>
+                                            <th>Zakres</th>
+                                            <th>Harmonogram</th>
+                                            <th>Ostatnie uruchomienie</th>
+                                            <th class="text-end">Akcja</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for task in tasks %}
+                                        <tr>
+                                            <td>
+                                                {% if task.brand %}
+                                                    <span class="badge bg-dark">{{ task.brand.name }}</span>
+                                                {% else %}
+                                                    <span class="badge bg-primary">Cały Projekt</span>
+                                                {% endif %}
+                                            </td>
+                                            <td>
+                                                <div class="d-flex flex-column">
+                                                    <span class="fw-bold fs-5 text-dark">
+                                                        <i class="bi bi-clock me-1 text-muted small"></i>{{ task.run_time }}
+                                                    </span>
+
+                                                    <div class="mt-1">
+                                                        {% if task.frequency == 'daily' %}
+                                                            <span class="badge bg-success-subtle text-success border border-success-subtle">Codziennie</span>
+                                                        {% else %}
+                                                            {% set day_names = ['Pn', 'Wt', 'Śr', 'Cz', 'Pt', 'Sb', 'Nd'] %}
+                                                            {% if task.days_of_week %}
+                                                                {% for d in task.days_of_week.split(',') %}
+                                                                    <span class="badge bg-light text-dark border me-1">{{ day_names[d|int] }}</span>
+                                                                {% endfor %}
+                                                            {% else %}
+                                                                <span class="text-muted small">Brak dni?</span>
+                                                            {% endif %}
+                                                        {% endif %}
+                                                    </div>
+                                                </div>
+                                            </td>
+                                            <td class="small text-muted">
+                                                {% if task.last_run_date %}
+                                                    {{ task.last_run_date }}
+                                                {% else %}
+                                                    <span class="fst-italic text-secondary opacity-50">Oczekuje...</span>
+                                                {% endif %}
+                                            </td>
+                                            <td class="text-end">
+                                                <div class="d-flex gap-2 justify-content-end">
+                                                    <form method="POST" action="{{ url_for('run_single_task', project_id=project.id, task_id=task.id) }}">
+                                                        <button type="submit" class="btn btn-sm btn-outline-success" title="Uruchom teraz">
+                                                            <i class="bi bi-play-fill"></i>
+                                                        </button>
+                                                    </form>
+
+                                                    <form method="POST" action="{{ url_for('delete_task', project_id=project.id, task_id=task.id) }}" onsubmit="return confirm('Na pewno usunąć to zadanie?');">
+                                                        <button type="submit" class="btn btn-sm btn-outline-danger border-0" title="Usuń zadanie">
+                                                            <i class="bi bi-trash"></i>
+                                                        </button>
+                                                    </form>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        {% else %}
+                            <div class="text-center py-5 text-muted bg-light rounded-3 mt-3">
+                                <i class="bi bi-calendar-x display-4 mb-3 opacity-50"></i>
+                                <p class="mb-0">Brak zaplanowanych zadań.</p>
+                                <small>Dodaj pierwsze zadanie korzystając z formularza po lewej.</small>
+                            </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function toggleDays(show) {
+    const container = document.getElementById('daysContainer');
+    if (show) {
+        container.style.display = 'block';
+    } else {
+        container.style.display = 'none';
+    }
+}
+</script>
+
+{% endblock %}

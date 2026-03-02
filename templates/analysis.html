@@ -1,0 +1,142 @@
+{% extends 'base.html' %}
+
+{% block title %}Analiza Rynku - {{ project.name }}{% endblock %}
+
+{% block content %}
+<div class="d-flex" id="wrapper">
+    <div id="page-content-wrapper" class="w-100 bg-light p-4">
+        
+        <h2 class="fw-bold mb-4">Analiza Konkurencji</h2>
+
+        <div class="row mb-4">
+            <div class="col-md-4">
+                <div class="card shadow-sm border-0 h-100">
+                    <div class="card-body text-center">
+                        <h5 class="card-title fw-bold text-muted mb-3">Twoja Pozycja Cenowa</h5>
+                        <div style="height: 250px;">
+                            <canvas id="positionChart"></canvas>
+                        </div>
+                        <p class="small text-muted mt-3">Stosunek Twoich cen do najtańszej oferty na rynku.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-8">
+                <div class="card shadow-sm border-0 h-100">
+                    <div class="card-header bg-white py-3">
+                        <h5 class="card-title fw-bold mb-0">🏆 Ranking Konkurencji</h5>
+                    </div>
+<div class="card-body p-0">
+    <div class="table-responsive" style="max-height: 320px; overflow-y: auto;">
+        <table class="table table-hover align-middle mb-0">
+            <thead class="table-light" style="position: sticky; top: 0; z-index: 1;">
+                <tr>
+                    <th>Sklep</th>
+                    <th class="text-center">Oni tańsi <span class="text-danger">(Zagrożenie)</span></th>
+                    <th class="text-center">Ty tańszy <span class="text-success">(Przewaga)</span></th>
+                    <th class="text-center">Równe</th>
+                    <th class="text-end">Razem</th>
+                </tr>
+            </thead>
+                                <tbody>
+                                    {% for shop in competitors %}
+                                    <tr>
+                                        <td class="fw-bold">{{ shop.name }}</td>
+                                        <td class="text-center text-danger fw-bold bg-danger-subtle">{{ shop.losses }}</td>
+                                        <td class="text-center text-success">{{ shop.wins }}</td>
+                                        <td class="text-center text-muted">{{ shop.draws }}</td>
+                                        <td class="text-end fw-bold">{{ shop.total }}</td>
+                                    </tr>
+                                    {% else %}
+                                    <tr>
+                                        <td colspan="5" class="text-center py-4 text-muted">Brak danych. Dodaj linki konkurencji.</td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-md-6 mb-3">
+                <div class="card border-0 shadow-sm border-start border-danger border-4">
+                    <div class="card-body">
+                        <h5 class="card-title fw-bold text-danger mb-3">⚠️ Top 5 Zagrożeń (Jesteś za drogi)</h5>
+                        <ul class="list-group list-group-flush">
+                            {% for item in threats %}
+                            <li class="list-group-item d-flex justify-content-between align-items-center px-0">
+                                <div>
+                                    <div class="fw-bold">{{ item.product.title[:40] }}...</div>
+                                    <small class="text-muted">{{ item.product.sku }}</small>
+                                </div>
+                                <div class="text-end">
+                                    <div class="badge bg-danger">Ty: +{{ item.diff }}%</div>
+                                    <div class="small text-muted mt-1">Rynek: {{ item.market_price }} zł</div>
+                                </div>
+                            </li>
+                            {% else %}
+                            <li class="list-group-item text-muted fst-italic">Brak krytycznych zagrożeń. Dobra robota!</li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-6 mb-3">
+                <div class="card border-0 shadow-sm border-start border-success border-4">
+                    <div class="card-body">
+                        <h5 class="card-title fw-bold text-success mb-3">💰 Top 5 Okazji (Jesteś za tani)</h5>
+                        <ul class="list-group list-group-flush">
+                            {% for item in opportunities %}
+                            <li class="list-group-item d-flex justify-content-between align-items-center px-0">
+                                <div>
+                                    <div class="fw-bold">{{ item.product.title[:40] }}...</div>
+                                    <small class="text-muted">{{ item.product.sku }}</small>
+                                </div>
+                                <div class="text-end">
+                                    <div class="badge bg-success">Ty: -{{ item.diff }}%</div>
+                                    <div class="small text-muted mt-1">Rynek: {{ item.market_price }} zł</div>
+                                </div>
+                            </li>
+                            {% else %}
+                            <li class="list-group-item text-muted fst-italic">Brak wyraźnych okazji do podwyżek.</li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+    const ctx = document.getElementById('positionChart').getContext('2d');
+    new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+            labels: ['Jesteś Tańszy', 'Konkurencja Tańsza', 'Równe Ceny'],
+            datasets: [{
+                data: [
+                    {{ global_position.cheaper }}, 
+                    {{ global_position.expensive }}, 
+                    {{ global_position.equal }}
+                ],
+                backgroundColor: ['#198754', '#dc3545', '#6c757d'],
+                borderWidth: 0
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { position: 'bottom' }
+            }
+        }
+    });
+</script>
+{% endblock %}

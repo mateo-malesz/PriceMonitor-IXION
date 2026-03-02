@@ -1,0 +1,455 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ product.title }} - Szczegóły{% endblock %}
+
+{% block content %}
+<div class="mb-4">
+    <a href="{{ url_for('project_dashboard', project_id=project.id) }}" class="text-decoration-none text-muted">
+        <i class="bi bi-arrow-left"></i> Wróć do Dashboardu
+    </a>
+</div>
+
+<div class="card shadow-sm mb-4 border-0">
+    <div class="card-body p-4">
+        <div class="row">
+
+            <div class="col-md-3 d-flex align-items-center justify-content-center bg-white rounded p-3 border" style="min-height: 180px;">
+                {% if product.image_link %}
+                    <img src="{{ product.image_link }}" alt="{{ product.title }}" class="img-fluid" style="max-height: 180px; object-fit: contain;">
+                {% else %}
+                    <i class="bi bi-image text-muted display-1 opacity-25"></i>
+                {% endif %}
+            </div>
+
+            <div class="col-md-6 ps-md-5 mt-3 mt-md-0 d-flex flex-column justify-content-center">
+
+                <div class="mb-3">
+                    {% if product.brand %}
+                        <span class="badge bg-dark text-white fw-normal px-3 py-2 me-2" style="font-size: 0.9rem;">{{ product.brand.name }}</span>
+                    {% endif %}
+                    <span class="text-muted font-monospace border rounded px-2 py-1 bg-light">SKU: {{ product.sku or 'Brak' }}</span>
+                </div>
+
+                <h2 class="fw-bold mb-3 text-dark">{{ product.title }}</h2>
+
+                <div class="d-flex align-items-center mt-2">
+                    {% set status = product.availability|lower|replace('_', ' ') if product.availability else '' %}
+
+                    {% if 'in stock' in status %}
+                        <span class="badge bg-success-subtle text-success border border-success-subtle px-3 py-2 rounded-pill d-flex align-items-center">
+                            <i class="bi bi-check-circle-fill me-2 fs-5"></i><span class="fw-bold">Dostępny</span>
+                        </span>
+                    {% elif 'out of stock' in status %}
+                        <span class="badge bg-danger-subtle text-danger border border-danger-subtle px-3 py-2 rounded-pill d-flex align-items-center">
+                            <i class="bi bi-x-circle-fill me-2 fs-5"></i><span class="fw-bold">Niedostępny</span>
+                        </span>
+                    {% else %}
+                        <span class="badge bg-light text-dark border px-3 py-2 rounded-pill">
+                            {{ product.availability or 'Status nieznany' }}
+                        </span>
+                    {% endif %}
+
+                    {% if product.my_url %}
+                        <a href="{{ product.my_url }}" target="_blank" class="btn btn-link text-decoration-none ms-4 fw-bold">
+                            <i class="bi bi-box-arrow-up-right me-1"></i> Przejdź do sklepu
+                        </a>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="col-md-3 text-md-end mt-4 mt-md-0 d-flex flex-column justify-content-center border-start ps-4 py-3 bg-light rounded-end">
+                <small class="text-muted text-uppercase mb-1 fw-bold ls-1">Twoja cena</small>
+                <div class="display-6 text-success fw-bolder mb-0">
+                    {{ "%.2f"|format(product.my_price) if product.my_price else "0.00" }} <span class="fs-4 text-muted fw-bold">PLN</span>
+                </div>
+
+                {% if product.gtin %}
+                <div class="mt-3 small text-muted border-top pt-2">
+                    EAN: <span class="font-monospace">{{ product.gtin }}</span>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-lg-8">
+<div class="d-flex justify-content-between align-items-center mb-3">
+            <h4 class="fw-bold mb-0">Monitorowana Konkurencja</h4>
+            <form method="POST" action="{{ url_for('refresh_prices', project_id=project.id, product_id=product.id) }}">
+                <button type="submit" class="btn btn-outline-primary btn-sm">
+                    <i class="bi bi-arrow-clockwise"></i> Odśwież Ceny
+                </button>
+            </form>
+        </div>
+
+   <div class="card shadow-sm border-0 mb-4">
+    <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0" id="sortableTable">
+            <thead class="bg-light">
+                <tr>
+                    <th class="ps-4" style="cursor: pointer;" onclick="sortTable(0)">
+                        Sklep <i class="bi bi-arrow-down-up" style="font-size: 0.8rem; color: #aaa;"></i>
+                    </th>
+                    <th style="cursor: pointer;" onclick="sortTable(1)">
+                        Ostatnia cena <i class="bi bi-arrow-down-up" style="font-size: 0.8rem; color: #aaa;"></i>
+                    </th>
+                    <th style="cursor: pointer;" onclick="sortTable(2)">
+                        Różnica <i class="bi bi-arrow-down-up" style="font-size: 0.8rem; color: #aaa;"></i>
+                    </th>
+                    <th style="cursor: pointer;" onclick="sortTable(3)">
+                        Data <i class="bi bi-arrow-down-up" style="font-size: 0.8rem; color: #aaa;"></i>
+                    </th>
+                    <th style="cursor: pointer;" onclick="sortTable(4)">
+                        Dostępność <i class="bi bi-arrow-down-up" style="font-size: 0.8rem; color: #aaa;"></i>
+                    </th>
+                    <th class="text-end pe-4">Akcja</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for mapping in mappings %}
+                <tr>
+                    <td class="ps-4">
+                        <div class="fw-bold">{{ mapping.shop.name }}</div>
+                        <a href="{{ mapping.url }}" target="_blank" class="small text-muted text-decoration-none d-inline-block text-truncate" style="max-width: 200px;">
+                            {{ mapping.url }} <i class="bi bi-box-arrow-up-right"></i>
+                        </a>
+                    </td>
+
+                    <td data-val="{{ mapping.last_price if mapping.last_price else 0 }}">
+                        {% if mapping.last_price %}
+                            <span class="fw-bold">{{ "%.2f"|format(mapping.last_price) }} PLN</span>
+                        {% else %}
+                            <span class="badge bg-secondary">Oczekuje...</span>
+                        {% endif %}
+                    </td>
+
+                    {% set diff_val = (mapping.last_price - product.my_price) if (mapping.last_price and product.my_price) else 0 %}
+                    <td data-val="{{ diff_val }}">
+                        {% if mapping.last_price and product.my_price %}
+                            {% set diff = mapping.last_price - product.my_price %}
+                            {% set perc = (diff / product.my_price) * 100 %}
+
+                            {% if diff < 0 %}
+                                <div class="text-danger fw-bold" style="font-size: 0.9rem;">
+                                    {{ "%.2f"|format(diff) }} PLN ▼
+                                </div>
+                                <div class="text-danger small" style="font-size: 0.75rem;">
+                                    {{ "%.0f"|format(perc) }}%
+                                </div>
+                            {% elif diff > 0 %}
+                                <div class="text-success fw-bold" style="font-size: 0.9rem;">
+                                    +{{ "%.2f"|format(diff) }} PLN ▲
+                                </div>
+                                <div class="text-success small" style="font-size: 0.75rem;">
+                                    +{{ "%.0f"|format(perc) }}%
+                                </div>
+                            {% else %}
+                                <span class="text-muted small">= 0.00</span>
+                            {% endif %}
+                        {% else %}
+                            <span class="text-muted small">-</span>
+                        {% endif %}
+                    </td>
+
+                    <td class="small text-muted">
+                        {{ mapping.last_checked_at.strftime('%Y-%m-%d %H:%M') if mapping.last_checked_at else '-' }}
+                    </td>
+
+                    <td>
+                        {% if mapping.last_checked_at %}
+                            {% if mapping.is_available %}
+                                <span class="badge bg-success-subtle text-success border border-success-subtle">
+                                    <i class="bi bi-check-circle me-1"></i>Dostępny
+                                </span>
+                            {% else %}
+                                <span class="badge bg-danger-subtle text-danger border border-danger-subtle">
+                                    <i class="bi bi-x-circle me-1"></i>Brak
+                                </span>
+                            {% endif %}
+                        {% else %}
+                            <span class="badge bg-secondary">Oczekuje...</span>
+                        {% endif %}
+                    </td>
+
+                    <td class="text-end pe-4">
+                        <form method="POST"
+                              action="{{ url_for('delete_mapping', project_id=project.id, mapping_id=mapping.id) }}"
+                              style="display: inline;"
+                              onsubmit="return confirm('Czy na pewno chcesz usunąć ten link?');">
+                            <button type="submit" class="btn btn-sm btn-outline-danger" title="Usuń link">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </form>
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="6" class="text-center py-5 text-muted">
+                        <i class="bi bi-search display-6 mb-3 d-block"></i>
+                        Nie dodałeś jeszcze żadnego linku konkurencji.
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+
+
+        <div class="card shadow-sm border-0 mb-4">
+            <div class="card-header bg-white border-0 py-3">
+                <h5 class="fw-bold mb-0"><i class="bi bi-graph-up me-2"></i>Historia Cen</h5>
+            </div>
+            <div class="card-body">
+{% if chart_data and chart_data != '[]' %}
+                    <div style="height: 350px; width: 100%;">
+                        <canvas id="priceChart"></canvas>
+                    </div>
+                {% else %}
+                    <div class="text-center py-5 bg-light rounded">
+                        <i class="bi bi-bar-chart-line display-4 text-muted opacity-50 mb-3"></i>
+                        <h6 class="fw-bold text-muted">Brak danych historycznych</h6>
+                        <p class="small text-muted mb-0">Kliknij "Odśwież Ceny", aby zebrać pierwszy punkt na wykresie.</p>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+<div class="card shadow-sm border-0 mb-4">
+            <div class="card-header bg-white border-0 py-3">
+                <h5 class="fw-bold mb-0"><i class="bi bi-stoplights me-2"></i>Historia Dostępności</h5>
+            </div>
+            <div class="card-body">
+{% if avail_data and avail_data != '[]' %}
+                    <div style="height: 120px; width: 100%;"> <canvas id="availChart"></canvas>
+                    </div>
+                    <div class="alert alert-light border mt-3 mb-0 text-muted small">
+                        <i class="bi bi-info-circle-fill me-2 text-primary"></i>
+                        <strong>Jak czytać wykres?</strong>
+                        Linia na górze oznacza, że produkt był <strong>dostępny</strong>. Linia na dole oznacza <strong>brak towaru</strong>.
+                        Kliknij nazwę sklepu w legendzie powyżej, aby porównać dostępność Twojego sklepu z wybranym konkurentem.
+                    </div>
+                {% else %}
+                    <div class="text-center py-4 bg-light rounded">
+                        <i class="bi bi-slash-circle display-6 text-muted opacity-50 mb-2"></i>
+                        <p class="small text-muted mb-0">Brak historii dostępności.</p>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+
+
+
+
+        </div>
+
+    <div class="col-lg-4">
+        <div class="card shadow-sm border-0 bg-light sticky-top" style="top: 20px; z-index: 1;">
+            <div class="card-body">
+                <h5 class="fw-bold mb-3">Dodaj Konkurenta</h5>
+                <p class="small text-muted">Wklej link do oferty tego produktu w innym sklepie (np. Allegro, Amazon, Morele).</p>
+
+                <form method="POST" action="{{ url_for('add_competitor_url', project_id=project.id, product_id=product.id) }}">
+                    <div class="mb-3">
+                        <label class="form-label fw-bold small">URL Oferty</label>
+                        <input type="url" name="url" class="form-control" placeholder="https://..." required>
+                    </div>
+                    <div class="d-grid">
+                        <button type="submit" class="btn btn-dark">
+                            <i class="bi bi-plus-lg me-2"></i>Monitoruj
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+
+<script>
+    document.addEventListener("DOMContentLoaded", function() {
+
+        // --- WYKRES 1: CENY ---
+        const priceData = {{ chart_data | safe }};
+        const ctxPrice = document.getElementById('priceChart').getContext('2d');
+
+        if (priceData && priceData.length > 0) {
+            new Chart(ctxPrice, {
+                type: 'line',
+                data: { datasets: priceData },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: { mode: 'index', intersect: false },
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                            labels: {
+                                usePointStyle: true,
+                                padding: 20,
+                                boxWidth: 8
+                            }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    let label = context.dataset.label || '';
+                                    if (label) label += ': ';
+                                    if (context.parsed.y !== null) label += context.parsed.y + ' PLN';
+                                    return label;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            type: 'time',
+                            time: {
+                                unit: 'day',
+                                tooltipFormat: 'dd.MM.yyyy HH:mm',
+                                displayFormats: {
+                                    hour: 'HH:mm',
+                                    day: 'dd.MM'
+                                }
+                            },
+                            adapters: {
+                                date: {
+                                    zone: 'local'
+                                }
+                            },
+                            title: { display: true, text: 'Data' },
+                            grid: { color: '#f0f0f0' }
+                        },
+                        y: {
+                            beginAtZero: false,
+                            title: { display: true, text: 'Cena (PLN)' },
+                            grid: { color: '#f0f0f0' }
+                        }
+                    }
+                }
+            });
+        }
+
+        // --- WYKRES 2: DOSTĘPNOŚĆ ---
+        const availData = {{ avail_data | safe }};
+        const ctxAvail = document.getElementById('availChart').getContext('2d');
+
+        if (availData && availData.length > 0) {
+            new Chart(ctxAvail, {
+                type: 'line',
+                data: { datasets: availData },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: {
+                        mode: 'index',
+                        intersect: false,
+                    },
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'bottom',
+                            labels: {
+                                usePointStyle: true,
+                                padding: 20,
+                                boxWidth: 8
+                            }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    const status = context.raw.y === 1 ? 'Dostępny' : 'BRAK';
+                                    return context.dataset.label + ': ' + status;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            type: 'time',
+                            time: {
+                                unit: 'day',
+                                tooltipFormat: 'dd.MM.yyyy HH:mm',
+                                displayFormats: {
+                                    hour: 'HH:mm',
+                                    day: 'dd.MM'
+                                }
+                            },
+                            adapters: {
+                                date: {
+                                    zone: 'local'
+                                }
+                            },
+                            display: true,
+                            title: { display: false },
+                            grid: { display: false }
+                        },
+                        y: {
+                            min: 0,
+                            max: 1.1,
+                            ticks: {
+                                stepSize: 1,
+                                callback: function(value) {
+                                    if(value === 1) return 'Dostępny';
+                                    if(value === 0) return 'Brak';
+                                    return '';
+                                }
+                            },
+                            grid: { color: '#f0f0f0' }
+                        }
+                    }
+                }
+            });
+        }
+    });
+</script>
+<script>
+function sortTable(n) {
+  var table, rows, switching, i, x, y, shouldSwitch, dir, switchcount = 0;
+  table = document.getElementById("sortableTable");
+  switching = true;
+  dir = "asc";
+
+  while (switching) {
+    switching = false;
+    rows = table.rows;
+
+    for (i = 1; i < (rows.length - 1); i++) {
+      shouldSwitch = false;
+      x = rows[i].getElementsByTagName("TD")[n];
+      y = rows[i + 1].getElementsByTagName("TD")[n];
+
+      var xContent = x.getAttribute("data-val") ? parseFloat(x.getAttribute("data-val")) : x.innerHTML.toLowerCase();
+      var yContent = y.getAttribute("data-val") ? parseFloat(y.getAttribute("data-val")) : y.innerHTML.toLowerCase();
+
+      if (dir == "asc") {
+        if (xContent > yContent) {
+          shouldSwitch = true;
+          break;
+        }
+      } else if (dir == "desc") {
+        if (xContent < yContent) {
+          shouldSwitch = true;
+          break;
+        }
+      }
+    }
+
+    if (shouldSwitch) {
+      rows[i].parentNode.insertBefore(rows[i + 1], rows[i]);
+      switching = true;
+      switchcount ++;
+    } else {
+      if (switchcount == 0 && dir == "asc") {
+        dir = "desc";
+        switching = true;
+      }
+    }
+  }
+}
+</script>
+{% endblock %}

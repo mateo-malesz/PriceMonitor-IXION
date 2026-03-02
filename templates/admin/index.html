@@ -1,0 +1,50 @@
+{% extends 'admin/master.html' %}
+
+{% block body %}
+<div class="container-fluid">
+    
+    <div class="row">
+        <div class="col-md-12">
+            <h1 class="page-header">Witaj w Panelu Administratora 👋</h1>
+            <p class="lead">PriceMonitor - Centrum Sterowania</p>
+        </div>
+    </div>
+
+    <br>
+
+    <div class="row">
+        
+        <div class="col-md-4">
+            <div class="panel panel-primary" style="border: 1px solid #ddd; border-radius: 5px; padding: 20px; background: #f8f9fa;">
+                <h3 style="margin-top:0;">Użytkownicy</h3>
+                <h1 style="font-size: 50px; color: #0d6efd;">{{ user_count }}</h1>
+                <p>Zarejestrowanych kont</p>
+            </div>
+        </div>
+
+        <div class="col-md-4">
+            <div class="panel panel-success" style="border: 1px solid #ddd; border-radius: 5px; padding: 20px; background: #f8f9fa;">
+                <h3 style="margin-top:0;">Aktywne Projekty</h3>
+                <h1 style="font-size: 50px; color: #198754;">{{ project_count }}</h1>
+                <p>Monitorowanych grup produktów</p>
+            </div>
+        </div>
+
+        <div class="col-md-4">
+            <div class="panel panel-info" style="border: 1px solid #ddd; border-radius: 5px; padding: 20px; background: #f8f9fa;">
+                <h3 style="margin-top:0;">Produkty w bazie</h3>
+                <h1 style="font-size: 50px; color: #0dcaf0;">{{ product_count }}</h1>
+                <p>Łącznie śledzonych produktów</p>
+            </div>
+        </div>
+
+    </div>
+
+    <br><br>
+    
+    <div class="alert alert-info">
+        <strong>Wskazówka:</strong> Użyj górnego menu, aby zarządzać bazą danych (CRUD). Pamiętaj, że usunięcie projektu kaskadowo usuwa jego zadania.
+    </div>
+
+</div>
+{% endblock %}

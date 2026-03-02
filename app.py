@@ -1,0 +1,1388 @@
+from flask import Flask, render_template, request, redirect, url_for, flash
+from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
+from flask_sqlalchemy import SQLAlchemy
+from werkzeug.security import generate_password_hash, check_password_hash
+from urllib.parse import urlparse
+from flask_mail import Mail, Message
+from flask import make_response
+from scraper import get_current_price
+import xml.etree.ElementTree as ET
+from flask_apscheduler import APScheduler
+from datetime import datetime, date
+from scraper import get_current_price
+from flask_admin import Admin, AdminIndexView, expose
+from flask_admin.contrib.sqla import ModelView
+import requests
+import os
+import json
+import csv
+import io
+from sqlalchemy import func
+from dotenv import load_dotenv
+
+load_dotenv()
+
+app = Flask(__name__)
+# --- KONFIGURACJA MAIL ---
+app.config['MAIL_SERVER'] = 'smtp.gmail.com'
+app.config['MAIL_PORT'] = 587
+app.config['MAIL_USE_TLS'] = True
+app.config['MAIL_USERNAME'] = os.getenv('MAIL_USERNAME')
+app.config['MAIL_PASSWORD'] = os.getenv('MAIL_PASSWORD')
+app.config['MAIL_DEFAULT_SENDER'] = os.getenv('MAIL_USERNAME')
+app.config['MAIL_RECIPIENT'] = os.getenv('MAIL_RECIPIENT')
+
+mail = Mail(app)
+
+# --- KONFIGURACJA HARMONOGRAMU ---
+class Config:
+    SCHEDULER_API_ENABLED = True
+
+app.config.from_object(Config())
+
+scheduler = APScheduler()
+scheduler.init_app(app)
+if os.environ.get('WERKZEUG_RUN_MAIN') == 'true' or not app.debug:
+    scheduler.start()
+
+# --- KONFIGURACJA APLIKACJI ---
+app.secret_key = os.getenv('SECRET_KEY')
+basedir = os.path.abspath(os.path.dirname(__file__))
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'database.db')
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+db = SQLAlchemy(app)
+
+# --- FLASK-LOGIN ---
+login_manager = LoginManager()
+login_manager.init_app(app)
+login_manager.login_view = 'login'
+
+# --- FLASK-ADMIN ---
+class MyModelView(ModelView):
+    def is_accessible(self):
+        admin_email = os.getenv('ADMIN_EMAIL')
+        return current_user.is_authenticated and admin_email and current_user.email == admin_email
+    def inaccessible_callback(self, name, **kwargs):
+        if not current_user.is_authenticated:
+            return redirect(url_for('login'))
+        flash('Brak uprawnień administratora.', category='error')
+        return redirect(url_for('home'))
+
+class UserModelView(MyModelView):
+    def on_model_change(self, form, model, is_created):
+        if form.password.data:
+            model.password = generate_password_hash(form.password.data, method='pbkdf2:sha256')
+        return super(UserModelView, self).on_model_change(form, model, is_created)
+
+class MyAdminIndexView(AdminIndexView):
+    def is_accessible(self):
+        admin_email = os.getenv('ADMIN_EMAIL')
+        return current_user.is_authenticated and admin_email and current_user.email == admin_email
+
+    def inaccessible_callback(self, name, **kwargs):
+        if not current_user.is_authenticated:
+            return redirect(url_for('login'))
+        flash('Brak uprawnień administratora.', category='error')
+        return redirect(url_for('home'))
+
+    @expose('/')
+    def index(self):
+        user_count = User.query.count()
+        project_count = Project.query.count()
+        product_count = Product.query.count()
+        return self.render('admin/index.html',
+                           user_count=user_count,
+                           project_count=project_count,
+                           product_count=product_count)
+
+admin = Admin(app, name='Panel Administratora', index_view=MyAdminIndexView())
+
+# --- MODELE BAZY DANYCH ---
+project_users = db.Table('project_users',
+                         db.Column('user_id', db.Integer, db.ForeignKey('user.id'), primary_key=True),
+                         db.Column('project_id', db.Integer, db.ForeignKey('project.id'), primary_key=True)
+                         )
+
+# --- USER ---
+class User(UserMixin, db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    email = db.Column(db.String(150), unique=True, nullable=False)
+    password = db.Column(db.String(150), nullable=False)
+    image_file = db.Column(db.String(500), nullable=False,
+                           default='https://ui-avatars.com/api/?name=User&background=0d6efd&color=fff')
+    projects = db.relationship('Project', secondary=project_users, backref=db.backref('users', lazy='dynamic'))
+
+# --- PROJEKT ---
+class Project(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False)
+    domain = db.Column(db.String(100))
+    products = db.relationship('Product', backref='project', lazy=True, cascade="all, delete")
+
+# --- MARKA ---
+class Brand(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False)
+    products = db.relationship('Product', backref='brand', lazy=True)
+
+# --- SKLEP ---
+class Shop(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False)
+    domain = db.Column(db.String(100), nullable=False)
+    mappings = db.relationship('ProductMapping', backref='shop', lazy=True)
+
+# --- PRODUKT ---
+class Product(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    project_id = db.Column(db.Integer, db.ForeignKey('project.id'), nullable=False)
+    sku = db.Column(db.String(50))
+    title = db.Column(db.String(200), nullable=False)
+    my_price = db.Column(db.Float)
+    my_url = db.Column(db.String(500))
+    image_link = db.Column(db.String(500))
+    gtin = db.Column(db.String(20))
+    availability = db.Column(db.String(20), nullable=True)
+    brand_id = db.Column(db.Integer, db.ForeignKey('brand.id'), nullable=True)
+    mappings = db.relationship('ProductMapping', backref='product', lazy=True, cascade="all, delete")
+
+    @property
+    def competitor_count(self):
+        count = 0
+        for mapping in self.mappings:
+            is_my_link = False
+            if self.my_url and (mapping.url.strip() == self.my_url.strip()):
+                is_my_link = True
+            if not is_my_link:
+                count += 1
+        return count
+
+# --- MAPPING ---
+class ProductMapping(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    product_id = db.Column(db.Integer, db.ForeignKey('product.id'), nullable=False)
+    shop_id = db.Column(db.Integer, db.ForeignKey('shop.id'), nullable=False)
+    url = db.Column(db.String(500), nullable=False)
+    is_active = db.Column(db.Boolean, default=True)
+    last_checked_at = db.Column(db.DateTime)
+    last_price = db.Column(db.Float)
+    history = db.relationship('PriceHistory', backref='mapping', lazy=True, cascade="all, delete")
+    is_available = db.Column(db.Boolean, default=True)
+
+# --- HISTORIA CEN ---
+class PriceHistory(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    mapping_id = db.Column(db.Integer, db.ForeignKey('product_mapping.id'), nullable=False)
+    price = db.Column(db.Float, nullable=False)
+    availability = db.Column(db.Boolean, default=True)
+    scraped_at = db.Column(db.DateTime, default=datetime.utcnow)
+    availability = db.Column(db.Boolean, default=True)
+
+# --- ZADANIE ---
+class ScheduledTask(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    project_id = db.Column(db.Integer, db.ForeignKey('project.id'), nullable=False)
+    brand_id = db.Column(db.Integer, db.ForeignKey('brand.id'), nullable=True)
+    run_time = db.Column(db.String(5), nullable=False, default="08:00")
+    frequency = db.Column(db.String(20), default='daily')
+    days_of_week = db.Column(db.String(50), nullable=True)
+    last_run_date = db.Column(db.Date, nullable=True)
+    is_active = db.Column(db.Boolean, default=True)
+    project = db.relationship('Project', backref=db.backref('tasks', cascade="all, delete-orphan"))
+    brand = db.relationship('Brand')
+
+@login_manager.user_loader
+def load_user(user_id):
+    return db.session.get(User, int(user_id))
+
+# --- ROUTING I LOGIKA ---
+@app.route('/')
+@login_required
+def home():
+    return redirect(url_for('projects'))
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if current_user.is_authenticated:
+        return redirect(url_for('home'))
+    if request.method == 'POST':
+        email = request.form.get('email')
+        password = request.form.get('password')
+        user = User.query.filter_by(email=email).first()
+        if user and check_password_hash(user.password, password):
+            login_user(user)
+            return redirect(url_for('projects'))
+        else:
+            flash('Błędny email lub hasło.', category='error')
+    return render_template('login.html')
+
+@app.route('/logout')
+@login_required
+def logout():
+    logout_user()
+    return redirect(url_for('login'))
+
+# --- OBSŁUGA BŁĘDÓW ---
+@app.errorhandler(404)
+def page_not_found(e):
+    return render_template('404.html'), 404
+
+# --- FUNKCJE IMPORTU ---
+def import_products_from_xml(url, project_id):
+    try:
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+        response = requests.get(url, headers=headers, timeout=30)
+
+        if response.status_code != 200:
+            print(f"Błąd pobierania: {response.status_code}")
+            return 0
+
+        root = ET.fromstring(response.content)
+        ns = {'g': 'http://base.google.com/ns/1.0'}
+        count = 0
+
+        items = root.findall('.//item')
+        if not items:
+            items = root.findall('.//{http://www.w3.org/2005/Atom}entry')
+        brands_cache = {}
+
+        for item in items:
+            title_node = item.find('title')
+            if title_node is None: title_node = item.find('g:title', ns)
+            title = title_node.text.strip() if (title_node is not None and title_node.text) else 'Bez nazwy'
+
+            link_node = item.find('link')
+            if link_node is None: link_node = item.find('g:link', ns)
+            link = link_node.text.strip() if (link_node is not None and link_node.text) else ''
+
+            sku_node = item.find('g:id', ns)
+            if sku_node is None: sku_node = item.find('g:mpn', ns)
+            sku_val = sku_node.text.strip() if (sku_node is not None and sku_node.text) else None
+
+            price_node = item.find('g:price', ns)
+            price_val = 0.0
+            if price_node is not None and price_node.text:
+                raw_price = price_node.text.upper().replace('PLN', '').replace('ZŁ', '').replace('EUR', '').replace(' ',
+                                                                                                                    '').strip()
+                try:
+                    price_val = float(raw_price)
+                except ValueError:
+                    price_val = 0.0
+
+            image_node = item.find('g:image_link', ns)
+            image_url = image_node.text.strip() if (image_node is not None and image_node.text) else None
+
+            gtin_node = item.find('g:gtin', ns)
+            gtin_val = gtin_node.text.strip() if (gtin_node is not None and gtin_node.text) else None
+
+            avail_node = item.find('g:availability', ns)
+            availability = avail_node.text.strip() if (avail_node is not None and avail_node.text) else 'unknown'
+
+            brand_node = item.find('g:brand', ns)
+            brand_name = brand_node.text.strip() if (brand_node is not None and brand_node.text) else None
+            brand_obj = None
+
+            if brand_name:
+                if brand_name in brands_cache:
+                    brand_obj = brands_cache[brand_name]
+                else:
+                    brand_obj = Brand.query.filter_by(name=brand_name).first()
+                    if not brand_obj:
+                        brand_obj = Brand(name=brand_name)
+                        db.session.add(brand_obj)
+                        db.session.commit()
+
+                    brands_cache[brand_name] = brand_obj
+
+            if sku_val:
+                exists = Product.query.filter_by(project_id=project_id, sku=sku_val).first()
+
+                if not exists:
+                    new_product = Product(
+                        project_id=project_id,
+                        title=title,
+                        sku=sku_val,
+                        my_price=price_val,
+                        my_url=link,
+                        image_link=image_url,
+                        gtin=gtin_val,
+                        brand_id=brand_obj.id if brand_obj else None,
+                        availability = availability
+                    )
+                    db.session.add(new_product)
+                    count += 1
+                else:
+                    if exists.my_price != price_val:
+                        exists.my_price = price_val
+                    if not exists.brand_id and brand_obj:
+                        exists.brand_id = brand_obj.id
+        db.session.commit()
+        return count
+    except Exception as e:
+        print(f"CRITICAL XML ERROR: {e}")
+        return 0
+
+# --- ROUTING PROJEKTÓW ---
+@app.route('/projects')
+@login_required
+def projects():
+    user_projects = current_user.projects
+    return render_template('project_list.html', projects=user_projects)
+
+@app.route('/project/new', methods=['GET', 'POST'])
+@login_required
+def create_project():
+    if request.method == 'POST':
+        name = request.form.get('name')
+        domain = request.form.get('domain')
+        import_method = request.form.get('import_method')
+        feed_url = request.form.get('feed_url')
+
+        if not name:
+            flash('Nazwa projektu jest wymagana!', category='error')
+        else:
+            new_project = Project(name=name, domain=domain)
+            new_project.users.append(current_user)
+
+            db.session.add(new_project)
+            db.session.commit()
+            imported_count = 0
+
+            if import_method == 'url' and feed_url:
+                flash('Rozpoczynam import produktów w tle... To może chwilę potrwać.', category='info')
+                imported_count = import_products_from_xml(feed_url, new_project.id)
+                if imported_count > 0:
+                    flash(f'Sukces! Zaimportowano {imported_count} produktów z feedu.', category='success')
+                else:
+                    flash('Utworzono projekt, ale nie udało się pobrać produktów (lub plik był pusty).',
+                          category='warning')
+
+            elif import_method == 'none':
+                flash('Projekt utworzony (pusty).', category='success')
+
+            return redirect(url_for('project_dashboard', project_id=new_project.id))
+
+    return render_template('create_project.html')
+
+# --- USUWANIE PROJEKTU ---
+@app.route('/project/<int:project_id>/delete', methods=['POST'])
+@login_required
+def delete_project(project_id):
+    project = Project.query.get_or_404(project_id)
+    if current_user not in project.users:
+        flash('Nie masz uprawnień do usunięcia tego projektu.', category='error')
+        return redirect(url_for('projects'))
+    db.session.delete(project)
+    db.session.commit()
+    flash(f'Projekt "{project.name}" został usunięty.', category='success')
+    return redirect(url_for('projects'))
+
+@app.route('/project/<int:project_id>/products')
+@login_required
+def project_dashboard(project_id):
+    project = Project.query.get_or_404(project_id)
+    if current_user not in project.users:
+        flash('Brak dostępu.', category='error')
+        return redirect(url_for('projects'))
+
+    all_products = Product.query.filter_by(project_id=project.id).all()
+
+    search_query = request.args.get('q', '')
+    brand_filter = request.args.get('brand', '')
+    filter_type = request.args.get('filter', '')
+
+    query = Product.query.filter_by(project_id=project.id)
+
+    if search_query:
+        query = query.filter(
+            (Product.title.ilike(f'%{search_query}%')) |
+            (Product.sku.ilike(f'%{search_query}%'))
+        )
+
+    if brand_filter and brand_filter.isdigit():
+        query = query.filter_by(brand_id=int(brand_filter))
+
+    if filter_type == 'errors':
+        query = query.join(ProductMapping).filter(
+            ProductMapping.is_active == True,
+            (ProductMapping.last_price == None) | (ProductMapping.last_price == 0)
+        ).distinct()
+    # filtered_products = query.all()
+    page = request.args.get('page', 1, type=int)
+    pagination = query.paginate(page=page, per_page=20, error_out=False)
+    filtered_products = pagination.items
+
+    available_brands = db.session.query(Brand).join(Product).filter(Product.project_id == project.id).distinct().order_by(Brand.name).all()
+
+    stats = {
+        'total_products': len(all_products),
+        'total_mappings': 0,
+        'increased': 0,
+        'decreased': 0,
+        'avail_in_stock': 0,
+        'avail_out_of_stock': 0,
+        'avail_other': 0,
+        'cheapest_count': 0,
+        'expensive_count': 0
+    }
+
+    for p in all_products:
+        stats['total_mappings'] += p.competitor_count
+
+        status = str(p.availability).lower() if p.availability else ""
+
+        if 'in stock' in status or 'dostępny' in status or 'available' in status:
+            stats['avail_in_stock'] += 1
+        elif 'out of stock' in status or 'niedostępny' in status:
+            stats['avail_out_of_stock'] += 1
+        else:
+            stats['avail_other'] += 1
+
+        visible_competitors = [m for m in p.mappings if m.is_active and (not p.my_url or m.url != p.my_url)]
+        if p.my_price and visible_competitors:
+            competitor_prices = [m.last_price for m in visible_competitors if m.last_price]
+            if competitor_prices:
+                min_market = min(competitor_prices)
+                if p.my_price <= min_market:
+                    stats['cheapest_count'] += 1
+                else:
+                    stats['expensive_count'] += 1
+
+    return render_template('products.html',
+                           project=project,
+                           products=filtered_products,
+                           pagination=pagination,
+                           stats=stats,
+                           available_brands=available_brands,
+                           current_filters={'q': search_query, 'brand': brand_filter, 'filter': filter_type}
+                           )
+
+
+@app.route('/project/<int:project_id>/add-product', methods=['POST'])
+@login_required
+def add_product(project_id):
+    project = Project.query.get_or_404(project_id)
+
+    if current_user not in project.users:
+        flash('Nie kombinuj, to nie Twój projekt.', category='error')
+        return redirect(url_for('projects'))
+
+    title = request.form.get('title')
+    url = request.form.get('url')
+    sku = request.form.get('sku')
+    price = request.form.get('price')
+
+    if not title:
+        flash('Nazwa produktu jest wymagana!', category='error')
+    else:
+        if price:
+            try:
+                price = float(price.replace(',', '.'))
+            except ValueError:
+                price = 0.0
+
+        new_product = Product(
+            title=title,
+            my_url=url,
+            sku=sku,
+            my_price=price,
+            project_id=project.id
+        )
+
+        db.session.add(new_product)
+        db.session.commit()
+        flash('Produkt dodany pomyślnie!', category='success')
+
+    return redirect(url_for('project_dashboard', project_id=project_id))
+
+
+# --- WIDOK SZCZEGÓŁÓW PRODUKTU ---
+@app.route('/project/<int:project_id>/product/<int:product_id>')
+@login_required
+def product_details(project_id, product_id):
+    project = Project.query.get_or_404(project_id)
+    if current_user not in project.users:
+        flash('Brak dostępu.', category='error')
+        return redirect(url_for('projects'))
+
+    product = Product.query.get_or_404(product_id)
+
+    if product.my_url:
+        clean_my_url = product.my_url.strip()
+        existing_mapping = ProductMapping.query.filter_by(product_id=product.id, url=clean_my_url).first()
+
+        if not existing_mapping:
+            domain_name = "Moj Sklep"
+            try:
+                from urllib.parse import urlparse
+                domain_name = urlparse(clean_my_url).netloc.replace('www.', '')
+            except:
+                pass
+
+            shop = Shop.query.filter_by(domain=domain_name).first()
+            if not shop:
+                shop = Shop(name=domain_name, domain=domain_name)
+                db.session.add(shop)
+                db.session.commit()
+
+            new_mapping = ProductMapping(product_id=product.id, shop_id=shop.id, url=clean_my_url, is_active=True)
+            db.session.add(new_mapping)
+            db.session.commit()
+
+    price_datasets = []
+    avail_datasets = []
+
+    sorted_mappings = sorted(product.mappings, key=lambda m: (m.url != product.my_url, m.shop.name))
+
+    for mapping in sorted_mappings:
+        if mapping.history:
+            sorted_history = sorted(mapping.history, key=lambda x: x.scraped_at)
+
+            price_points = [{'x': h.scraped_at.strftime('%Y-%m-%dT%H:%M:%S'), 'y': h.price} for h in sorted_history]
+
+            avail_points = [{'x': h.scraped_at.strftime('%Y-%m-%dT%H:%M:%S'), 'y': 1 if h.availability else 0} for h in
+                            sorted_history]
+
+            is_my_store = False
+            if product.my_url and (product.my_url.strip() == mapping.url.strip()):
+                is_my_store = True
+
+
+            if is_my_store:
+                color = '#198754'
+                border_width = 4
+                z_order = 10
+            else:
+                color = f"#{abs(hash(mapping.shop.name)) % 0xFFFFFF:06x}"
+                border_width = 2
+                z_order = 1
+
+            price_datasets.append({
+                'label': mapping.shop.name + (" (Ty)" if is_my_store else ""),
+                'data': price_points,
+                'borderColor': color,
+                'backgroundColor': color,
+                'borderWidth': border_width,
+                'pointRadius': 0,
+                'fill': False,
+                'tension': 0.1,
+                'order': z_order
+            })
+
+            fill_color = color + "80"
+
+            avail_datasets.append({
+                'label': mapping.shop.name + (" (Ty)" if is_my_store else ""),
+                'data': avail_points,
+                'borderColor': color,
+                'backgroundColor': color,
+                'borderWidth': 2,
+                'pointRadius': 0,
+                'fill': False,
+                'stepped': True,
+                'hidden': not is_my_store,
+                'order': z_order
+            })
+
+    visible_mappings = []
+    for m in product.mappings:
+        is_my_link = False
+        if product.my_url and (m.url.strip() == product.my_url.strip()):
+            is_my_link = True
+
+        if not is_my_link:
+            visible_mappings.append(m)
+
+    return render_template('product_details.html',
+                           project=project,
+                           product=product,
+                           chart_data=json.dumps(price_datasets),
+                           avail_data=json.dumps(avail_datasets),
+                           mappings=visible_mappings)
+
+
+# --- DODAWANIE LINKU DO ŚLEDZENIA ---
+@app.route('/project/<int:project_id>/product/<int:product_id>/add-url', methods=['POST'])
+@login_required
+def add_competitor_url(project_id, product_id):
+    url = request.form.get('url')
+
+    if not url:
+        flash('Musisz podać link!', category='error')
+    else:
+        parsed_uri = urlparse(url)
+        domain = parsed_uri.netloc.replace('www.', '')
+
+        if not domain:
+            flash('Niepoprawny link URL.', category='error')
+            return redirect(url_for('product_details', project_id=project_id, product_id=product_id))
+
+        shop = Shop.query.filter_by(domain=domain).first()
+        if not shop:
+            shop = Shop(name=domain.capitalize(), domain=domain)
+            db.session.add(shop)
+            db.session.commit()
+
+        new_mapping = ProductMapping(
+            product_id=product_id,
+            shop_id=shop.id,
+            url=url
+        )
+
+        db.session.add(new_mapping)
+        db.session.commit()
+        flash(f'Dodano link do monitorowania ({domain})!', category='success')
+
+    return redirect(url_for('product_details', project_id=project_id, product_id=product_id))
+
+
+@app.route('/project/<int:project_id>/product/<int:product_id>/refresh', methods=['POST'])
+@login_required
+def refresh_prices(project_id, product_id):
+    product = Project.query.get_or_404(project_id)
+    product = Product.query.get_or_404(product_id)
+
+    updated_count = 0
+
+    print(f"--- [REFRESH] Odświeżam produkt: {product.title} ---")
+
+    for mapping in product.mappings:
+        if mapping.is_active:
+            print(f" -> Sprawdzam URL: {mapping.url}")
+
+            try:
+                result = get_current_price(mapping.url)
+
+                if not result or not isinstance(result, tuple):
+                    print(f"    !!! BŁĄD: Scraper zwrócił błędne dane: {result}")
+                    continue
+
+                new_price, is_avail = result
+
+                if new_price is not None:
+                    mapping.last_price = new_price
+                    mapping.is_available = is_avail
+                    mapping.last_checked_at = datetime.now()
+
+                    history = PriceHistory(
+                        mapping_id=mapping.id,
+                        price=new_price,
+                        availability=is_avail
+                    )
+                    db.session.add(history)
+                    updated_count += 1
+                    print(f"    -> Sukces: {new_price} PLN (Dostępny: {is_avail})")
+                else:
+                    print("    -> Brak ceny (strona nie zwróciła wyniku)")
+
+            except Exception as e:
+                print(f"    !!! KRTYYCZNY BŁĄD przy linku {mapping.url}: {e}")
+                continue
+
+    db.session.commit()
+
+    if updated_count > 0:
+        flash(f'Zaktualizowano ceny w {updated_count} sklepach!', category='success')
+    else:
+        flash('Nie udało się pobrać żadnej nowej ceny (sprawdź konsolę, aby zobaczyć błędy).', category='warning')
+
+    return redirect(url_for('product_details', project_id=project_id, product_id=product_id))
+
+
+# --- USUWANIE PRODUKTU ---
+@app.route('/project/<int:project_id>/product/<int:product_id>/delete', methods=['POST'])
+@login_required
+def delete_product(project_id, product_id):
+    project = Project.query.get_or_404(project_id)
+    if current_user not in project.users:
+        flash('Brak dostępu.', category='error')
+        return redirect(url_for('projects'))
+
+    product = Product.query.get_or_404(product_id)
+
+    db.session.delete(product)
+    db.session.commit()
+
+    flash('Produkt został usunięty.', category='success')
+    return redirect(url_for('project_dashboard', project_id=project.id))
+
+
+# --- USUWANIE LINKU KONKURENCJI (MAPPINGU) ---
+@app.route('/project/<int:project_id>/mapping/<int:mapping_id>/delete', methods=['POST'])
+@login_required
+def delete_mapping(project_id, mapping_id):
+    # Pobieramy mapping
+    mapping = ProductMapping.query.get_or_404(mapping_id)
+
+    if mapping.product.project_id != project_id or current_user not in mapping.product.project.users:
+        flash('Brak dostępu.', category='error')
+        return redirect(url_for('projects'))
+
+    product_id = mapping.product_id
+
+    db.session.delete(mapping)
+    db.session.commit()
+
+    flash('Link do konkurencji usunięty.', category='success')
+    return redirect(url_for('product_details', project_id=project_id, product_id=product_id))
+
+@app.route('/project/<int:project_id>/schedule/add', methods=['POST'])
+@login_required
+def add_task(project_id):
+    project = Project.query.get_or_404(project_id)
+    if current_user not in project.users:
+        flash('Brak dostępu.', category='error')
+        return redirect(url_for('projects'))
+
+    # Pobieramy dane z nowego formularza
+    brand_id = request.form.get('brand_id')
+    run_time = request.form.get('run_time')
+    frequency = request.form.get('frequency')
+    days = request.form.getlist('days')
+
+    target_brand = None
+    if brand_id and brand_id != 'all':
+        target_brand = int(brand_id)
+
+    days_str = ",".join(days) if frequency == 'weekly' else None
+
+    new_task = ScheduledTask(
+        project_id=project.id,
+        brand_id=target_brand,
+        run_time=run_time,
+        frequency=frequency,
+        days_of_week=days_str
+    )
+
+    db.session.add(new_task)
+    db.session.commit()
+
+    flash('Dodano nowe zadanie do harmonogramu.', 'success')
+    return redirect(url_for('project_scheduler', project_id=project.id))
+
+
+# --- WYŚWIETLANIE HARMONOGRAMU ---
+@app.route('/project/<int:project_id>/scheduler', methods=['GET'])
+@login_required
+def project_scheduler(project_id):
+    project = Project.query.get_or_404(project_id)
+    if current_user not in project.users:
+        flash('Brak dostępu.', category='error')
+        return redirect(url_for('projects'))
+
+    tasks = ScheduledTask.query.filter_by(project_id=project.id).all()
+    brands = Brand.query.join(Product).filter(Product.project_id == project.id).distinct().all()
+
+    return render_template('scheduler.html', project=project, tasks=tasks, brands=brands)
+
+@app.route('/project/<int:project_id>/scheduler/<int:task_id>/delete', methods=['POST'])
+@login_required
+def delete_task(project_id, task_id):
+    task = ScheduledTask.query.get_or_404(task_id)
+
+    if task.project_id != project_id:
+        flash('Błąd autoryzacji.', category='error')
+        return redirect(url_for('projects'))
+
+    db.session.delete(task)
+    db.session.commit()
+    flash('Zadanie usunięte.', category='success')
+    return redirect(url_for('project_scheduler', project_id=project_id))
+
+def send_enhanced_report(task_name, scan_results):
+    print(f"[MAIL] Rozpoczynam przygotowanie raportu: {task_name}")
+    if not scan_results:
+        print("[MAIL] Brak wyników do wysłania.")
+        return
+
+    try:
+        print("[MAIL] Generuję plik CSV...")
+        csv_buffer = io.StringIO()
+        csv_writer = csv.writer(csv_buffer, delimiter=';', quoting=csv.QUOTE_MINIMAL)
+        csv_writer.writerow(['Produkt', 'SKU', 'Sklep', 'Status', 'Stara Cena', 'Nowa Cena', 'Zmiana', 'Link', 'Info'])
+
+        changes = []
+        errors = []
+
+        for item in scan_results:
+            diff = ""
+            if item.get('old_price') and item.get('new_price'):
+                try:
+                    diff = f"{round(item['new_price'] - item['old_price'], 2)} PLN"
+                except:
+                    diff = ""
+
+            csv_writer.writerow([
+                item['product'],
+                item['sku'],
+                item['shop'],
+                item['status'].upper(),
+                item['old_price'] if item['old_price'] else '',
+                item['new_price'] if item['new_price'] else '',
+                diff,
+                item['url'],
+                item['msg']
+            ])
+
+            if item['status'] == 'change':
+                changes.append(item)
+            elif item['status'] == 'error':
+                errors.append(item)
+
+        csv_buffer.seek(0)
+
+        # print("[MAIL] Pobieram URL logo...")
+        # logo_url = "http://127.0.0.1:5000/static/logo.png"
+        # try:
+        #     with app.test_request_context():
+        #         logo_url = url_for('static', filename='logo.png', _external=True)
+        # except:
+        #     pass
+
+        print("[MAIL] Generuję treść HTML...")
+        html_body = f"""
+        <html>
+        <body style="font-family: Arial, sans-serif; color: #333;">
+            <div style="max-width: 600px; margin: 0 auto; border: 1px solid #ddd; padding: 20px; border-radius: 8px;">
+    
+                <div style="text-align: center; margin-bottom: 20px;">
+                    <h2 style="margin-top: 10px; color: #000;">Raport Skanowania</h2>
+                    <p style="color: #777; font-size: 14px;">{task_name} | {date.today()}</p>
+                </div>
+    
+                <div style="display: flex; gap: 10px; margin-bottom: 20px;">
+                    <div style="flex: 1; background: #f8f9fa; padding: 10px; text-align: center; border-radius: 5px;">
+                        <div style="font-size: 24px; font-weight: bold;">{len(scan_results)}</div>
+                        <div style="font-size: 12px; color: #666;">Sprawdzono</div>
+                    </div>
+                    <div style="flex: 1; background: #e8f5e9; padding: 10px; text-align: center; border-radius: 5px;">
+                        <div style="font-size: 24px; font-weight: bold; color: #198754;">{len(changes)}</div>
+                        <div style="font-size: 12px; color: #198754;">Zmiany Cen</div>
+                    </div>
+                    <div style="flex: 1; background: #fce4ec; padding: 10px; text-align: center; border-radius: 5px;">
+                        <div style="font-size: 24px; font-weight: bold; color: #dc3545;">{len(errors)}</div>
+                        <div style="font-size: 12px; color: #dc3545;">Błędy</div>
+                    </div>
+                </div>
+    
+                {'<h3 style="border-bottom: 2px solid #198754; padding-bottom: 5px;">📉 Wykryte Zmiany Cen</h3>' if changes else ''}
+                {'<table style="width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 20px;">' if changes else ''}
+                {'<tr style="background: #f1f1f1; text-align: left;"><th>Produkt</th><th>Sklep</th><th>Cena</th></tr>' if changes else ''}
+        """
+
+        for item in changes:
+            price_color = "#198754" if item['new_price'] < item['old_price'] else "#dc3545"
+            arrow = "▼" if item['new_price'] < item['old_price'] else "▲"
+
+            html_body += f"""
+            <tr style="border-bottom: 1px solid #eee;">
+                <td style="padding: 8px;"><b>{item['product']}</b><br><span style="color:#777; font-size:11px;">{item['sku']}</span></td>
+                <td style="padding: 8px;">{item['shop']}</td>
+                <td style="padding: 8px; font-weight: bold; color: {price_color};">
+                    {item['old_price']} &rarr; {item['new_price']} PLN {arrow}
+                </td>
+            </tr>
+            """
+
+        if changes:
+            html_body += "</table>"
+
+        if errors:
+            html_body += '<h3 style="border-bottom: 2px solid #dc3545; padding-bottom: 5px;">⚠️ Problemy z linkami</h3>'
+            html_body += '<table style="width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 20px;">'
+            html_body += '<tr style="background: #f1f1f1; text-align: left;"><th>Produkt</th><th>Sklep</th><th>Błąd</th></tr>'
+
+            for item in errors:
+                html_body += f"""
+                <tr style="border-bottom: 1px solid #eee;">
+                    <td style="padding: 8px;">{item['product']}</td>
+                    <td style="padding: 8px;">{item['shop']}</td>
+                    <td style="padding: 8px; color: #dc3545;">{item['msg']}</td>
+                </tr>
+                """
+            html_body += "</table>"
+
+        html_body += f"""
+                <div style="text-align: center; margin-top: 30px; border-top: 1px solid #eee; padding-top: 20px;">
+                    <p style="margin-bottom: 10px;">Pełna lista produktów znajduje się w załączonym pliku <b>raport_skanowania.csv</b></p>
+                    <a href="http://127.0.0.1:5000" style="background-color: #0d6efd; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; font-weight: bold;">Przejdź do Panelu</a>
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+        print("[MAIL] Łączę z serwerem SMTP...")
+        recipient = app.config.get('MAIL_RECIPIENT') or app.config['MAIL_DEFAULT_SENDER']
+        try:
+            msg = Message(f"{task_name} - Raport Cenowy", recipients=[recipient])
+            msg.html = html_body
+
+            msg.attach("raport_skanowania.csv", "text/csv", csv_buffer.getvalue().encode('utf-8-sig'))
+
+            mail.send(msg)
+            print("--- [MAIL] Raport Enhanced wysłany! ---")
+        except Exception as e:
+            print(f"--- [MAIL ERROR] {e}")
+    except Exception as e:
+        print(f"[MAIL CRITICAL ERROR] Nie udało się wysłać maila: {e}")
+        import traceback
+        traceback.print_exc()
+
+@scheduler.task('interval', id='main_scanner_job', seconds=60)
+def run_scheduled_scans():
+    with app.app_context():
+        now = datetime.now()
+        current_time = now.strftime("%H:%M")
+        today_date = date.today()
+
+        tasks = ScheduledTask.query.filter_by(is_active=True).all()
+        tasks_to_run = []
+
+        for task in tasks:
+            if task.last_run_date == today_date:
+                continue
+            if task.run_time == current_time:
+                tasks_to_run.append(task)
+
+        if not tasks_to_run:
+            return
+
+        print(f"--- [SCHEDULER] Uruchamiam {len(tasks_to_run)} zadań ---")
+
+        for task in tasks_to_run:
+            task_name = f"Raport ({current_time})"
+            scan_results = []
+
+            query = Product.query.filter_by(project_id=task.project_id)
+            if task.brand_id:
+                query = query.filter_by(brand_id=task.brand_id)
+            products = query.all()
+
+            for product in products:
+                for mapping in product.mappings:
+                    if mapping.is_active:
+                        old_price = mapping.last_price
+
+                        print(f"Sprawdzam: {mapping.shop.name} -> {mapping.url[:30]}...")
+
+                        try:
+                            result = get_current_price(mapping.url)
+                            if result and isinstance(result, tuple):
+                                new_price, is_avail = result
+                            else:
+                                new_price = None
+                                is_avail = False
+                        except Exception:
+                            new_price = None
+                            is_avail = False
+
+                        result_entry = {
+                            'product': product.title, 'shop': mapping.shop.name,
+                            'old_price': old_price, 'new_price': new_price,
+                            'status': 'ok', 'msg': 'OK', 'sku': product.sku, 'url': mapping.url
+                        }
+
+                        if new_price is not None:
+                            if old_price != new_price:
+                                result_entry['status'] = 'change'
+
+                            mapping.last_price = new_price
+                            mapping.is_available = is_avail
+                            mapping.last_checked_at = datetime.now()
+
+                            history = PriceHistory(mapping_id=mapping.id, price=new_price, availability=is_avail)
+                            db.session.add(history)
+                        else:
+
+                            result_entry['status'] = 'error'
+                            result_entry['msg'] = 'Nie znaleziono ceny'
+
+                        if new_price:
+                            print(f"Sukces: {new_price} PLN")
+                        else:
+                            print(f"Błąd: Nie znaleziono ceny")
+
+                        scan_results.append(result_entry)
+
+            print("Zapisuję wyniki do bazy danych...")
+            task.last_run_date = today_date
+            db.session.commit()
+
+            if scan_results:
+                try:
+                    print(f"Generuję raport i wysyłam maila ({len(scan_results)} produktów)...")
+                    send_enhanced_report(task_name, scan_results)
+                    print(f"[SCHEDULER] Zadanie wykonane. Raport wysłany!")
+                except Exception as e:
+                    print(f"[SCHEDULER ERROR] Zadanie wykonane, ale błąd wysyłki: {e}")
+
+# --- RĘCZNE WYMUSZENIE SKANOWANIA ---
+@app.route('/project/<int:project_id>/scheduler/force-run', methods=['POST'])
+@login_required
+def force_run_scheduler(project_id):
+    project = Project.query.get_or_404(project_id)
+    if current_user not in project.users:
+        return redirect(url_for('projects'))
+
+    tasks = ScheduledTask.query.filter_by(project_id=project.id, is_active=True).all()
+
+    if not tasks:
+        flash('Brak aktywnych zadań.', category='warning')
+        return redirect(url_for('project_scheduler', project_id=project.id))
+
+    print(f"--- [FORCE RUN] Start {len(tasks)} zadań ---")
+    total_scanned = 0
+
+    for task in tasks:
+        task_label = f"Raport: Marka {task.brand.name}" if task.brand else "Raport: Cały Projekt"
+        task_name = f"{task_label} (Wymuszony)"
+
+        scan_results = []
+        query = Product.query.filter_by(project_id=task.project_id)
+        if task.brand_id:
+            query = query.filter_by(brand_id=task.brand_id)
+        products = query.all()
+
+        for product in products:
+            for mapping in product.mappings:
+                if mapping.is_active:
+                    old_price = mapping.last_price
+
+                    try:
+                        result = get_current_price(mapping.url)
+                        if result and isinstance(result, tuple):
+                            new_price, is_avail = result
+                        else:
+                            new_price = None
+                            is_avail = False
+                    except:
+                        new_price = None
+                        is_avail = False
+
+                    result_entry = {
+                        'product': product.title, 'sku': product.sku,
+                        'shop': mapping.shop.name, 'url': mapping.url,
+                        'old_price': old_price, 'new_price': new_price,
+                        'status': 'ok', 'msg': 'OK'
+                    }
+
+                    if new_price is not None:
+                        if old_price != new_price:
+                            result_entry['status'] = 'change'
+
+                        mapping.last_price = new_price
+                        mapping.is_available = is_avail
+                        mapping.last_checked_at = datetime.now()
+
+                        history = PriceHistory(mapping_id=mapping.id, price=new_price, availability=is_avail)
+                        db.session.add(history)
+                    else:
+                        result_entry['status'] = 'error'
+                        result_entry['msg'] = 'Nie znaleziono ceny'
+
+                    scan_results.append(result_entry)
+                    total_scanned += 1
+
+        task.last_run_date = date.today()
+        db.session.commit()
+
+        if scan_results:
+            try:
+                send_enhanced_report(task_name, scan_results)
+            except:
+                pass
+
+    flash(f'Zakończono. Sprawdzono {total_scanned} linków.', category='success')
+    return redirect(url_for('project_scheduler', project_id=project.id))
+
+
+# --- URUCHOMIENIE POJEDYNCZEGO ZADANIA ---
+@app.route('/project/<int:project_id>/scheduler/<int:task_id>/run', methods=['POST'])
+@login_required
+def run_single_task(project_id, task_id):
+    task = ScheduledTask.query.get_or_404(task_id)
+    if task.project_id != project_id:
+        return redirect(url_for('projects'))
+
+    task_label = f"Raport: Marka {task.brand.name}" if task.brand else "Raport: Cały Projekt"
+    task_name = f"{task_label} (Pojedynczy)"
+
+    scan_results = []
+    query = Product.query.filter_by(project_id=task.project_id)
+    if task.brand_id:
+        query = query.filter_by(brand_id=task.brand_id)
+    products = query.all()
+
+    for product in products:
+        for mapping in product.mappings:
+            if mapping.is_active:
+                old_price = mapping.last_price
+
+                try:
+                    result = get_current_price(mapping.url)
+                    if result and isinstance(result, tuple):
+                        new_price, is_avail = result
+                    else:
+                        new_price = None
+                        is_avail = False
+                except:
+                    new_price = None
+                    is_avail = False
+
+                result_entry = {
+                    'product': product.title, 'sku': product.sku,
+                    'shop': mapping.shop.name, 'url': mapping.url,
+                    'old_price': old_price, 'new_price': new_price,
+                    'status': 'ok', 'msg': 'OK'
+                }
+
+                if new_price is not None:
+                    if old_price != new_price:
+                        result_entry['status'] = 'change'
+
+                    mapping.last_price = new_price
+                    mapping.is_available = is_avail
+                    mapping.last_checked_at = datetime.now()
+
+                    history = PriceHistory(mapping_id=mapping.id, price=new_price, availability=is_avail)
+                    db.session.add(history)
+                else:
+                    result_entry['status'] = 'error'
+                    result_entry['msg'] = 'Nie znaleziono ceny'
+
+                scan_results.append(result_entry)
+
+    task.last_run_date = date.today()
+    db.session.commit()
+
+    if scan_results:
+        try:
+            send_enhanced_report(task_name, scan_results)
+            flash(f'Zadanie wykonane. Raport wysłany!', category='success')
+        except:
+            flash(f'Zadanie wykonane, błąd wysyłki.', category='warning')
+
+    return redirect(url_for('project_scheduler', project_id=project_id))
+
+# Wyświetlanie strony raportów
+@app.route('/project/<int:project_id>/reports')
+@login_required
+def project_reports(project_id):
+    project = Project.query.get_or_404(project_id)
+    if current_user not in project.users:
+        flash('Brak dostępu.', category='error')
+        return redirect(url_for('projects'))
+
+    brands = Brand.query.join(Product).filter(Product.project_id == project.id).distinct().all()
+
+    today = date.today()
+    start_date = today.replace(day=1)
+
+    return render_template('reports.html', project=project, brands=brands, today=today, start_date=start_date)
+
+
+# Generowanie CSV
+@app.route('/project/<int:project_id>/reports/download', methods=['POST'])
+@login_required
+def download_report(project_id):
+    project = Project.query.get_or_404(project_id)
+    if current_user not in project.users:
+        flash('Brak dostępu.', category='error')
+        return redirect(url_for('projects'))
+
+    start_date_str = request.form.get('start_date')
+    end_date_str = request.form.get('end_date')
+    brand_id = request.form.get('brand_id')
+
+    query = db.session.query(PriceHistory).join(ProductMapping).join(Product).join(Shop)
+
+    query = query.filter(Product.project_id == project.id)
+
+    if start_date_str:
+        query = query.filter(PriceHistory.scraped_at >= f"{start_date_str} 00:00:00")
+    if end_date_str:
+        query = query.filter(PriceHistory.scraped_at <= f"{end_date_str} 23:59:59")
+
+    if brand_id and brand_id != 'all':
+        query = query.filter(Product.brand_id == int(brand_id))
+
+    history_data = query.order_by(PriceHistory.scraped_at.desc(), Product.title).all()
+
+    si = io.StringIO()
+    cw = csv.writer(si, delimiter=';')
+
+    cw.writerow(['Data', 'Godzina', 'SKU', 'Produkt', 'Marka', 'Sklep', 'Cena (PLN)', 'Dostępność', 'Link'])
+
+    for row in history_data:
+        date_str = row.scraped_at.strftime('%Y-%m-%d')
+        time_str = row.scraped_at.strftime('%H:%M')
+
+        cw.writerow([
+            date_str,
+            time_str,
+            row.mapping.product.sku,
+            row.mapping.product.title,
+            row.mapping.product.brand.name if row.mapping.product.brand else 'Brak',
+            row.mapping.shop.name,
+            str(row.price).replace('.', ','),
+            'Dostępny' if row.availability else 'Niedostępny',
+            row.mapping.url
+        ])
+
+    output = make_response(si.getvalue().encode('utf-8-sig'))
+    output.headers["Content-Disposition"] = f"attachment; filename=raport_cen_{start_date_str}_{end_date_str}.csv"
+    output.headers["Content-type"] = "text/csv"
+
+    return output
+
+
+@app.route('/project/<int:project_id>/analysis')
+@login_required
+def project_analysis(project_id):
+    project = Project.query.get_or_404(project_id)
+    if current_user not in project.users:
+        flash('Brak dostępu.', category='error')
+        return redirect(url_for('projects'))
+
+    products = Product.query.filter_by(project_id=project.id).all()
+
+    competitor_stats = {}
+    global_position = {'cheaper': 0, 'expensive': 0, 'equal': 0}
+
+    opportunities = []
+    threats = []
+
+    for p in products:
+        if not p.my_price: continue
+
+        active_mappings = []
+        for m in p.mappings:
+
+            if not m.is_active or not m.last_price:
+                continue
+
+            if p.my_url and m.url.strip() == p.my_url.strip():
+                continue
+
+            active_mappings.append(m)
+
+        if not active_mappings: continue
+
+        market_prices = [m.last_price for m in active_mappings]
+        min_market_price = min(market_prices)
+
+        if p.my_price < min_market_price:
+            global_position['cheaper'] += 1
+            diff_percent = ((min_market_price - p.my_price) / min_market_price) * 100
+            if diff_percent > 15:
+                opportunities.append({
+                    'product': p,
+                    'diff': round(diff_percent, 1),
+                    'market_price': min_market_price
+                })
+
+        elif p.my_price > min_market_price:
+            global_position['expensive'] += 1
+            diff_percent = ((p.my_price - min_market_price) / min_market_price) * 100
+            if diff_percent > 10:
+                threats.append({
+                    'product': p,
+                    'diff': round(diff_percent, 1),
+                    'market_price': min_market_price
+                })
+        else:
+            global_position['equal'] += 1
+
+        for m in active_mappings:
+            shop_name = m.shop.name
+            if shop_name not in competitor_stats:
+                competitor_stats[shop_name] = {'name': shop_name, 'wins': 0, 'losses': 0, 'draws': 0, 'total': 0}
+
+            stats = competitor_stats[shop_name]
+            stats['total'] += 1
+
+            if p.my_price < m.last_price:
+                stats['wins'] += 1
+            elif p.my_price > m.last_price:
+                stats['losses'] += 1
+            else:
+                stats['draws'] += 1
+
+    sorted_competitors = sorted(competitor_stats.values(), key=lambda x: x['losses'], reverse=True)
+
+    opportunities = sorted(opportunities, key=lambda x: x['diff'], reverse=True)[:5]  # Top 5
+    threats = sorted(threats, key=lambda x: x['diff'], reverse=True)[:5]  # Top 5
+
+    return render_template('analysis.html',
+                           project=project,
+                           competitors=sorted_competitors,
+                           global_position=global_position,
+                           opportunities=opportunities,
+                           threats=threats)
+
+@app.route('/project/<int:project_id>/overview')
+@login_required
+def project_overview(project_id):
+    project = Project.query.get_or_404(project_id)
+    if current_user not in project.users:
+        flash('Brak dostępu.', category='error')
+        return redirect(url_for('projects'))
+
+    today = date.today()
+
+    scans_today = db.session.query(PriceHistory).join(ProductMapping).join(Product).filter(
+        Product.project_id == project.id,
+        func.date(PriceHistory.scraped_at) == today
+    ).count()
+
+    errors_count = ProductMapping.query.join(Product).filter(
+        Product.project_id == project.id,
+        ProductMapping.is_active == True,
+        (ProductMapping.last_price == None) | (ProductMapping.last_price == 0)
+    ).count()
+    recent_activity = db.session.query(PriceHistory).join(ProductMapping).join(Product).join(Shop).filter(
+        Product.project_id == project.id
+    ).order_by(PriceHistory.scraped_at.desc()).limit(10).all()
+
+    last_scan_time = recent_activity[0].scraped_at if recent_activity else None
+
+    return render_template('overview.html',
+                           project=project,
+                           scans_today=scans_today,
+                           errors_count=errors_count,
+                           recent_activity=recent_activity,
+                           last_scan_time=last_scan_time)
+
+# TWORZENIE ADMINA - inicjalizacja tylko przy pierwszym uruchomieniu
+@app.route('/create-admin')
+def create_admin():
+    db.create_all()
+    email = os.getenv('ADMIN_EMAIL')
+    password = os.getenv('ADMIN_PASSWORD')
+
+    if not email or not password:
+        return "Błąd: Brak danych admina w pliku .env!"
+    if not User.query.filter_by(email=email).first():
+        hashed_pw = generate_password_hash(password, method='pbkdf2:sha256')
+        new_user = User(email=email, password=hashed_pw)
+        db.session.add(new_user)
+        db.session.commit()
+        return f"Stworzono admina ({email})! Teraz możesz się zalogować."
+    return "Admin już istnieje."
+
+# --- REJESTRACJA WIDOKÓW W FLASK-ADMIN ---
+admin.add_view(UserModelView(User, db.session, name='Użytkownicy'))
+admin.add_view(MyModelView(Project, db.session, name='Projekty'))
+admin.add_view(MyModelView(Brand, db.session, name='Marki'))
+admin.add_view(MyModelView(Product, db.session, name='Produkty'))
+admin.add_view(MyModelView(Shop, db.session, name='Sklepy'))
+admin.add_view(MyModelView(ProductMapping, db.session, name='Linki (Mapping)'))
+admin.add_view(MyModelView(ScheduledTask, db.session, name='Harmonogram'))
+admin.add_view(MyModelView(PriceHistory, db.session, name='Historia Cen'))
+
+if __name__ == '__main__':
+    with app.app_context():
+        db.create_all()
+
+    app.run(debug=True, use_reloader=False)

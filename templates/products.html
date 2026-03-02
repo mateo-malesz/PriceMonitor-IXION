@@ -1,0 +1,479 @@
+{% extends 'base.html' %}
+
+{% block title %}Produkty - {{ project.name }}{% endblock %}
+
+{% block content %}
+
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <div>
+                    <h2 class="fw-bold">Produkty</h2>
+                    <p class="text-muted">Znaleziono {{ pagination.total }} produtków</p>
+                </div>
+                <div>
+                    <button class="btn btn-outline-secondary me-2">Zarzązdaj</button>
+                    <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addProductModal">
+    <i class="bi bi-plus-lg"></i> Dodaj Produkt
+</button>
+                </div>
+            </div>
+{% if current_filters.filter == 'errors' %}
+    <div class="alert alert-danger d-flex justify-content-between align-items-center shadow-sm mt-3">
+        <div>
+            <i class="bi bi-exclamation-octagon-fill me-2"></i>
+            <strong>Tryb naprawczy:</strong> Wyświetlasz tylko produkty z uszkodzonymi linkami (404 / Brak ceny).
+        </div>
+        <a href="{{ url_for('project_dashboard', project_id=project.id) }}" class="btn btn-sm btn-outline-danger bg-white">
+            <i class="bi bi-x-lg"></i> Pokaż Wszystkie
+        </a>
+    </div>
+{% endif %}
+<div class="card shadow-sm border-0 mb-4 bg-light">
+    <div class="card-body py-3">
+        <form method="GET" action="{{ url_for('project_dashboard', project_id=project.id) }}" class="row g-2 align-items-center">
+
+            <div class="col-md-5">
+                <div class="input-group">
+                    <span class="input-group-text bg-white border-end-0"><i class="bi bi-search text-muted"></i></span>
+                    <input type="text" name="q" class="form-control border-start-0 ps-0"
+                           placeholder="Szukaj po nazwie lub SKU..."
+                           value="{{ current_filters.q }}">
+                </div>
+            </div>
+
+            <div class="col-md-3">
+                <select name="brand" class="form-select">
+                    <option value="">Wszystkie Marki</option>
+                    {% for brand in available_brands %}
+                        <option value="{{ brand.id }}" {% if current_filters.brand|int == brand.id %}selected{% endif %}>
+                            {{ brand.name }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-4 d-flex gap-2">
+                <button type="submit" class="btn btn-primary px-4">Filtruj</button>
+
+                {% if current_filters.q or current_filters.brand %}
+                    <a href="{{ url_for('project_dashboard', project_id=project.id) }}" class="btn btn-outline-secondary">
+                        <i class="bi bi-x-lg"></i> Wyczyść
+                    </a>
+                {% endif %}
+
+                <div class="ms-auto text-muted small align-self-center">
+                    Wyników: <strong>{{ pagination.total }}</strong>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+            <div class="row g-4 mb-4">
+                <div class="col-md-8">
+    <div class="card border-0 shadow-sm">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+<thead class="bg-light">
+    <tr>
+        <th class="ps-4" style="cursor: pointer;" onclick="sortTable(0)">
+            Produkt <i class="bi bi-arrow-down-up ms-1 small opacity-50"></i>
+        </th>
+
+        <th style="cursor: pointer;" onclick="sortTable(1)">
+            Marka <i class="bi bi-arrow-down-up ms-1 small opacity-50"></i>
+        </th>
+
+        <th style="cursor: pointer;" onclick="sortTable(2)">
+            SKU <i class="bi bi-arrow-down-up ms-1 small opacity-50"></i>
+        </th>
+
+        <th style="cursor: pointer; white-space: nowrap;" onclick="sortTable(3, true)">
+            Twoja Cena <i class="bi bi-arrow-down-up ms-1 small opacity-50"></i>
+        </th>
+
+        <th class="text-end pe-4" style="cursor: pointer;" onclick="sortTable(4)">
+            Status <i class="bi bi-arrow-down-up ms-1 small opacity-50"></i>
+        </th>
+
+        <th class="text-end pe-4">Akcja</th>
+    </tr>
+</thead>
+                    <tbody>
+                        {% for product in products %}
+                        <tr>
+    <td class="ps-4 position-relative">
+        <div class="d-flex align-items-center">
+            {% if product.image_link %}
+                <img src="{{ product.image_link }}" alt="img" class="rounded border me-3" style="width: 48px; height: 48px; object-fit: contain; background: #fff;">
+            {% else %}
+                <div class="rounded border me-3 d-flex align-items-center justify-content-center bg-light text-muted" style="width: 48px; height: 48px;">
+                    <i class="bi bi-box-seam"></i>
+                </div>
+            {% endif %}
+
+            <div>
+                <div class="fw-bold">
+                    <a href="{{ url_for('product_details', project_id=project.id, product_id=product.id) }}" class="text-decoration-none text-dark stretched-link">
+                        {{ product.title }}
+                    </a>
+                </div>
+                {% if product.my_url %}
+<a href="{{ product.my_url }}" target="_blank" class="small text-muted text-decoration-none position-relative" style="z-index: 2;">
+                    <i class="bi bi-link-45deg"></i> Sklep własny <i class="bi bi-box-arrow-up-right small ms-1"></i>
+                </a>
+                {% endif %}
+            </div>
+        </div>
+    </td>
+
+    <td>
+        {% if product.brand %}
+            <span class="badge bg-light text-dark border fw-normal">
+                {{ product.brand.name }}
+            </span>
+        {% else %}
+            <span class="text-muted small">-</span>
+        {% endif %}
+    </td>
+
+    <td>
+        <span class="small font-monospace text-muted">{{ product.sku or '-' }}</span>
+    </td>
+
+    <td>
+        <div class="fw-bold text-success">
+            {{ "%.2f"|format(product.my_price) if product.my_price else '-' }} PLN
+        </div>
+
+        {% set status = product.availability|lower|replace('_', ' ') if product.availability else '' %}
+
+        {% if 'in stock' in status %}
+            <span class="badge bg-success-subtle text-success border border-success-subtle" style="font-size: 0.7rem;">
+                <i class="bi bi-check-circle-fill me-1"></i>Dostępny
+            </span>
+        {% elif 'out of stock' in status %}
+            <span class="badge bg-danger-subtle text-danger border border-danger-subtle" style="font-size: 0.7rem;">
+                <i class="bi bi-x-circle-fill me-1"></i>Niedostępny
+            </span>
+        {% elif 'preorder' in status %}
+            <span class="badge bg-warning-subtle text-warning border border-warning-subtle" style="font-size: 0.7rem;">
+                <i class="bi bi-clock-history me-1"></i>Przedsprzedaż
+            </span>
+        {% else %}
+            <span class="badge bg-light text-muted border" style="font-size: 0.7rem;">
+                {{ product.availability or 'Brak danych' }}
+            </span>
+        {% endif %}
+    </td>
+
+    <td class="text-end pe-4">
+        {% if product.competitor_count > 0 %}
+            <span class="badge bg-success-subtle text-success border border-success-subtle px-2 py-1 rounded-2">
+    Monitorowany ({{ product.competitor_count }})
+</span>
+        {% else %}
+            <span class="badge bg-warning-subtle text-warning">Brak linków</span>
+        {% endif %}
+    </td>
+
+    <td class="text-end pe-4" style="z-index: 2; position: relative;"> <form method="POST"
+              action="{{ url_for('delete_product', project_id=project.id, product_id=product.id) }}"
+              onsubmit="return confirm('Usunąć ten produkt?');"
+              style="display: inline;">
+            <button type="submit" class="btn btn-sm btn-outline-danger border-0">
+                <i class="bi bi-trash"></i>
+            </button>
+        </form>
+    </td>
+</tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="4" class="text-center py-5 text-muted">
+                                <i class="bi bi-box-seam display-6 mb-3 d-block"></i>
+                                Brak produktów. Dodaj coś przyciskiem powyżej.
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            </div>
+    </div>
+                    {% if pagination.pages > 1 %}
+        <nav aria-label="Nawigacja stron" class="mt-4 mb-4">
+            <ul class="pagination justify-content-center">
+                <li class="page-item {% if not pagination.has_prev %}disabled{% endif %}">
+                    <a class="page-link" href="{{ url_for('project_dashboard', project_id=project.id, page=pagination.prev_num, q=current_filters.q, brand=current_filters.brand, filter=current_filters.filter) }}">Poprzednia</a>
+                </li>
+
+                {% for page_num in pagination.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
+                    {% if page_num %}
+                        <li class="page-item {% if page_num == pagination.page %}active{% endif %}">
+                            <a class="page-link" href="{{ url_for('project_dashboard', project_id=project.id, page=page_num, q=current_filters.q, brand=current_filters.brand, filter=current_filters.filter) }}">{{ page_num }}</a>
+                        </li>
+                    {% else %}
+                        <li class="page-item disabled"><span class="page-link">...</span></li>
+                    {% endif %}
+                {% endfor %}
+
+                <li class="page-item {% if not pagination.has_next %}disabled{% endif %}">
+                    <a class="page-link" href="{{ url_for('project_dashboard', project_id=project.id, page=pagination.next_num, q=current_filters.q, brand=current_filters.brand, filter=current_filters.filter) }}">Następna</a>
+                </li>
+            </ul>
+        </nav>
+        {% endif %}
+</div>
+
+<div class="col-md-4">
+
+    <div class="card border-0 shadow-sm mb-3">
+        <div class="card-body">
+            <h6 class="card-title fw-bold mb-3">Zmiany Cen (Ostatnie spr.)</h6>
+
+            <div class="d-flex align-items-center justify-content-between mb-2">
+                <span class="text-muted small">Wzrosły:</span>
+                <span class="badge bg-danger-subtle text-danger rounded-pill px-3">
+                    <i class="bi bi-arrow-up-short"></i> {{ stats.increased }}
+                </span>
+            </div>
+
+            <div class="d-flex align-items-center justify-content-between">
+                <span class="text-muted small">Spadły:</span>
+                <span class="badge bg-success-subtle text-success rounded-pill px-3">
+                    <i class="bi bi-arrow-down-short"></i> {{ stats.decreased }}
+                </span>
+            </div>
+
+            {% if stats.increased == 0 and stats.decreased == 0 %}
+                <div class="mt-3 text-center small text-muted fst-italic">
+                    Brak zmian cen w ostatnim czasie.
+                </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="card border-0 shadow-sm mb-3">
+        <div class="card-body">
+            <h6 class="card-title fw-bold mb-3">Monitoring</h6>
+            <div class="d-flex justify-content-between mb-2">
+                <span class="small text-muted">Aktywne linki:</span>
+                <span class="fw-bold">{{ stats.total_mappings }}</span>
+            </div>
+            <div class="d-flex justify-content-between">
+                <span class="small text-muted">Produkty:</span>
+                <span class="fw-bold">{{ stats.total_products }}</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="card border-0 shadow-sm">
+        <div class="card-body">
+            <h6 class="card-title fw-bold mb-3">Dostępność Produktów</h6>
+
+            <div style="position: relative; height: 180px; width: 100%;">
+                <canvas id="availabilityChart"></canvas>
+
+                <div id="chartCenterText" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; pointer-events: none;">
+                    </div>
+            </div>
+
+            <div class="row mt-3 text-center small">
+                <div class="col-4 border-end">
+                    <div class="fw-bold text-success">{{ stats.avail_in_stock }}</div>
+                    <div class="text-muted" style="font-size: 0.7rem;">Dostępne</div>
+                </div>
+                <div class="col-4 border-end">
+                    <div class="fw-bold text-danger">{{ stats.avail_out_of_stock }}</div>
+                    <div class="text-muted" style="font-size: 0.7rem;">Braki</div>
+                </div>
+                <div class="col-4">
+                    <div class="fw-bold text-secondary">{{ stats.avail_other }}</div>
+                    <div class="text-muted" style="font-size: 0.7rem;">Inne</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<div class="modal fade" id="addProductModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+
+      <div class="modal-header">
+        <h5 class="modal-title fw-bold">Nowy Produkt</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+
+      <form method="POST" action="{{ url_for('add_product', project_id=project.id) }}">
+          <div class="modal-body">
+
+            <div class="mb-3">
+                <label class="form-label">Nazwa produktu <span class="text-danger">*</span></label>
+                <input type="text" name="title" class="form-control" required placeholder="np. Konsola PlayStation 5">
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label">Link do Twojego sklepu</label>
+                <input type="url" name="url" class="form-control" placeholder="https://twojsklep.pl/produkt/ps5">
+            </div>
+
+            <div class="row">
+                <div class="col-md-6 mb-3">
+                    <label class="form-label">SKU (Kod magazynowy)</label>
+                    <input type="text" name="sku" class="form-control" placeholder="SONY-PS5-001">
+                </div>
+                <div class="col-md-6 mb-3">
+                    <label class="form-label">Twoja Cena (PLN)</label>
+                    <input type="text" name="price" class="form-control" placeholder="2499.00">
+                </div>
+            </div>
+
+          </div>
+
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Anuluj</button>
+            <button type="submit" class="btn btn-primary">Zapisz produkt</button>
+          </div>
+      </form>
+
+    </div>
+  </div>
+</div>
+                <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+
+       <script>
+// Zmienne globalne do pamiętania kierunku sortowania
+let sortDirection = {};
+
+function sortTable(columnIndex, isNumber = false) {
+    const table = document.querySelector("table");
+    const tbody = table.querySelector("tbody");
+
+    // 1. Zamieniamy listę wierszy (HTMLCollection) na prawdziwą tablicę JavaScript
+    // Dzięki temu możemy użyć szybkiego algorytmu .sort()
+    const rows = Array.from(tbody.querySelectorAll("tr"));
+
+    // 2. Ustalamy kierunek (jak klikniesz drugi raz to odwracamy)
+    if (!sortDirection[columnIndex] || sortDirection[columnIndex] === 'asc') {
+        sortDirection[columnIndex] = 'desc';
+    } else {
+        sortDirection[columnIndex] = 'asc';
+    }
+    const dir = sortDirection[columnIndex];
+
+    // 3. Sortowanie w pamięci (To jest moment "magii", który nie zacina przeglądarki)
+    rows.sort((rowA, rowB) => {
+        // Pobieramy treść komórek
+        const cellA = rowA.cells[columnIndex].innerText.trim().toLowerCase();
+        const cellB = rowB.cells[columnIndex].innerText.trim().toLowerCase();
+
+        let valA = cellA;
+        let valB = cellB;
+
+        // Jeśli to liczby (np. cena), czyścimy je ze śmieci
+        if (isNumber) {
+            valA = parseFloat(cellA.replace(/[^0-9.-]+/g, "")) || 0;
+            valB = parseFloat(cellB.replace(/[^0-9.-]+/g, "")) || 0;
+        }
+
+        // Porównywanie
+        if (valA < valB) {
+            return dir === 'asc' ? -1 : 1;
+        }
+        if (valA > valB) {
+            return dir === 'asc' ? 1 : -1;
+        }
+        return 0;
+    });
+
+    // 4. Wrzucamy posortowane wiersze z powrotem do tabeli
+    // (Przeglądarka jest sprytna - nie usuwa ich i nie dodaje nowych, tylko przesuwa istniejące)
+    rows.forEach(row => tbody.appendChild(row));
+
+    // 5. Opcjonalnie: Aktualizacja ikonek strzałek (kosmetyka)
+    updateSortIcons(columnIndex, dir);
+}
+
+function updateSortIcons(columnIndex, dir) {
+    // Resetujemy wszystkie ikonki do domyślnych
+    document.querySelectorAll("th i").forEach(icon => {
+        icon.className = "bi bi-arrow-down-up ms-1 small opacity-50";
+    });
+
+    // Ustawiamy ikonkę na klikniętej kolumnie
+    const headers = document.querySelectorAll("th");
+    if (headers[columnIndex]) {
+        const icon = headers[columnIndex].querySelector("i");
+        if (icon) {
+            icon.className = dir === 'asc' ? "bi bi-arrow-up ms-1 small text-dark" : "bi bi-arrow-down ms-1 small text-dark";
+            icon.classList.remove("opacity-50");
+        }
+    }
+}
+</script>
+                <script>
+    document.addEventListener("DOMContentLoaded", function() {
+        const canvas = document.getElementById('availabilityChart');
+        if (!canvas) return;
+
+        const ctxAvail = canvas.getContext('2d');
+
+        // Dane z Backend
+        const inStock = {{ stats.avail_in_stock|default(0) }};
+        const outStock = {{ stats.avail_out_of_stock|default(0) }};
+        const other = {{ stats.avail_other|default(0) }};
+
+        // --- OBLICZANIE PROCENTÓW (NOWOŚĆ) ---
+        const total = inStock + outStock + other;
+        let percent = 0;
+        if (total > 0) {
+            percent = Math.round((inStock / total) * 100);
+        }
+
+        // Wstawiamy ładny HTML w środek wykresu
+        const centerDiv = document.getElementById('chartCenterText');
+        if (centerDiv) {
+            centerDiv.innerHTML = `
+                <div class="h2 fw-bold text-dark mb-0">${percent}%</div>
+                <div class="text-muted small" style="font-size: 0.7rem; margin-top: -5px;">Dostępnych</div>
+            `;
+        }
+
+        // Rysowanie Wykresu
+        new Chart(ctxAvail, {
+            type: 'doughnut',
+            data: {
+                labels: ['Dostępne', 'Niedostępne', 'Inne'],
+                datasets: [{
+                    data: [inStock, outStock, other],
+                    backgroundColor: [
+                        '#198754', // Zielony
+                        '#dc3545', // Czerwony
+                        '#6c757d'  // Szary
+                    ],
+                    borderWidth: 0,
+                    hoverOffset: 4
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                return ' ' + context.label + ': ' + context.raw;
+                            }
+                        }
+                    }
+                },
+                cutout: '75%', // Cienki pierścień, żeby tekst się zmieścił
+            }
+        });
+    });
+
+    // ... Twój kod sortowania tabeli ...
+</script>
+{% endblock %}
