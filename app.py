@@ -175,7 +175,7 @@ class PriceHistory(db.Model):
     mapping_id = db.Column(db.Integer, db.ForeignKey('product_mapping.id'), nullable=False)
     price = db.Column(db.Float, nullable=False)
     availability = db.Column(db.Boolean, default=True)
-    scraped_at = db.Column(db.DateTime, default=datetime.utcnow)
+    scraped_at = db.Column(db.DateTime, default=lambda: datetime.now(datetime.UTC))
 
 # --- ZADANIE ---
 class ScheduledTask(db.Model):
