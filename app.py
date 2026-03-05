@@ -7,7 +7,7 @@ from flask_mail import Mail, Message
 from flask import make_response
 import xml.etree.ElementTree as ET
 from flask_apscheduler import APScheduler
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 from scraper import get_current_price
 from flask_admin import Admin, AdminIndexView, expose
 from flask_admin.contrib.sqla import ModelView
@@ -16,10 +16,26 @@ import os
 import json
 import csv
 import io
+import logging
+from logging.handlers import RotatingFileHandler
 from sqlalchemy import func
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# --- KONFIGURACJA LOGOWANIA ---
+# Ustawiamy RotatingFileHandler: max 1MB na plik, trzymamy 5 ostatnich plików
+file_handler = RotatingFileHandler('app.log', maxBytes=1024 * 1024, backupCount=5)
+file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+
+logging.basicConfig(
+    level=logging.INFO,
+    handlers=[
+        file_handler,
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 # --- KONFIGURACJA MAIL ---
@@ -117,6 +133,7 @@ class Project(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
     domain = db.Column(db.String(100))
+    product_feed_url = db.Column(db.String(500), nullable=True)
     products = db.relationship('Product', backref='project', lazy=True, cascade="all, delete")
 
 # --- MARKA ---
@@ -144,6 +161,7 @@ class Product(db.Model):
     gtin = db.Column(db.String(20))
     availability = db.Column(db.String(20), nullable=True)
     brand_id = db.Column(db.Integer, db.ForeignKey('brand.id'), nullable=True)
+    is_active = db.Column(db.Boolean, default=True, nullable=False)
     mappings = db.relationship('ProductMapping', backref='product', lazy=True, cascade="all, delete")
 
     @property
@@ -175,7 +193,7 @@ class PriceHistory(db.Model):
     mapping_id = db.Column(db.Integer, db.ForeignKey('product_mapping.id'), nullable=False)
     price = db.Column(db.Float, nullable=False)
     availability = db.Column(db.Boolean, default=True)
-    scraped_at = db.Column(db.DateTime, default=lambda: datetime.now(datetime.UTC))
+    scraped_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
 
 # --- ZADANIE ---
 class ScheduledTask(db.Model):
@@ -184,7 +202,7 @@ class ScheduledTask(db.Model):
     brand_id = db.Column(db.Integer, db.ForeignKey('brand.id'), nullable=True)
     run_time = db.Column(db.String(5), nullable=False, default="08:00")
     frequency = db.Column(db.String(20), default='daily')
-    days_of_week = db.Column(db.String(50), nullable=True)
+    days_of_week = db.Column(db.String(5), nullable=True)
     last_run_date = db.Column(db.Date, nullable=True)
     is_active = db.Column(db.Boolean, default=True)
     project = db.relationship('Project', backref=db.backref('tasks', cascade="all, delete-orphan"))
@@ -228,18 +246,23 @@ def page_not_found(e):
 
 # --- FUNKCJE IMPORTU ---
 def import_products_from_xml(url, project_id):
+    stats = {'added': 0, 'updated': 0, 'archived': 0, 'error': None}
     try:
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
         response = requests.get(url, headers=headers, timeout=30)
 
         if response.status_code != 200:
-            print(f"Błąd pobierania: {response.status_code}")
-            return 0
+            logger.error(f"Błąd pobierania XML: {response.status_code}")
+            stats['error'] = f"Błąd HTTP: {response.status_code}"
+            return stats
 
         root = ET.fromstring(response.content)
         ns = {'g': 'http://base.google.com/ns/1.0'}
-        count = 0
-
+        
+        # Pobieramy wszystkie aktywne produkty z bazy dla tego projektu
+        existing_products = {p.sku: p for p in Product.query.filter_by(project_id=project_id).all()}
+        imported_skus = set()
+        
         items = root.findall('.//item')
         if not items:
             items = root.findall('.//{http://www.w3.org/2005/Atom}entry')
@@ -294,9 +317,23 @@ def import_products_from_xml(url, project_id):
                     brands_cache[brand_name] = brand_obj
 
             if sku_val:
-                exists = Product.query.filter_by(project_id=project_id, sku=sku_val).first()
-
-                if not exists:
+                imported_skus.add(sku_val)
+                
+                if sku_val in existing_products:
+                    # Aktualizacja istniejącego produktu
+                    product = existing_products[sku_val]
+                    if product.my_price != price_val:
+                        product.my_price = price_val
+                    if not product.brand_id and brand_obj:
+                        product.brand_id = brand_obj.id
+                    
+                    # Upewniamy się, że produkt jest aktywny (jeśli wrócił z archiwum)
+                    if not product.is_active:
+                        product.is_active = True
+                        
+                    stats['updated'] += 1
+                else:
+                    # Dodanie nowego produktu
                     new_product = Product(
                         project_id=project_id,
                         title=title,
@@ -306,20 +343,25 @@ def import_products_from_xml(url, project_id):
                         image_link=image_url,
                         gtin=gtin_val,
                         brand_id=brand_obj.id if brand_obj else None,
-                        availability = availability
+                        availability=availability,
+                        is_active=True
                     )
                     db.session.add(new_product)
-                    count += 1
-                else:
-                    if exists.my_price != price_val:
-                        exists.my_price = price_val
-                    if not exists.brand_id and brand_obj:
-                        exists.brand_id = brand_obj.id
+                    stats['added'] += 1
+        
+        # Archiwizacja produktów, których nie ma w pliku
+        for sku, product in existing_products.items():
+            if sku not in imported_skus and product.is_active:
+                product.is_active = False
+                stats['archived'] += 1
+                
         db.session.commit()
-        return count
+        logger.info(f"Import zakończony. Statystyki: {stats}")
+        return stats
     except Exception as e:
-        print(f"CRITICAL XML ERROR: {e}")
-        return 0
+        logger.critical(f"CRITICAL XML ERROR: {e}", exc_info=True)
+        stats['error'] = str(e)
+        return stats
 
 # --- ROUTING PROJEKTÓW ---
 @app.route('/projects')
@@ -340,21 +382,20 @@ def create_project():
         if not name:
             flash('Nazwa projektu jest wymagana!', category='error')
         else:
-            new_project = Project(name=name, domain=domain)
+            # Zapisujemy feed_url w bazie, jeśli został podany
+            new_project = Project(name=name, domain=domain, product_feed_url=feed_url if feed_url else None)
             new_project.users.append(current_user)
 
             db.session.add(new_project)
             db.session.commit()
-            imported_count = 0
-
+            
             if import_method == 'url' and feed_url:
                 flash('Rozpoczynam import produktów w tle... To może chwilę potrwać.', category='info')
-                imported_count = import_products_from_xml(feed_url, new_project.id)
-                if imported_count > 0:
-                    flash(f'Sukces! Zaimportowano {imported_count} produktów z feedu.', category='success')
+                result = import_products_from_xml(feed_url, new_project.id)
+                if not result['error']:
+                    flash(f"Sukces! Dodano: {result['added']}, Zaktualizowano: {result['updated']}.", category='success')
                 else:
-                    flash('Utworzono projekt, ale nie udało się pobrać produktów (lub plik był pusty).',
-                          category='warning')
+                    flash(f"Błąd importu: {result['error']}", category='warning')
 
             elif import_method == 'none':
                 flash('Projekt utworzony (pusty).', category='success')
@@ -384,13 +425,20 @@ def project_dashboard(project_id):
         flash('Brak dostępu.', category='error')
         return redirect(url_for('projects'))
 
-    all_products = Product.query.filter_by(project_id=project.id).all()
-
+    # Pobieramy parametry filtrowania
     search_query = request.args.get('q', '')
     brand_filter = request.args.get('brand', '')
     filter_type = request.args.get('filter', '')
+    show_archived = request.args.get('archived', 'false') == 'true'
 
+    # Budujemy zapytanie
     query = Product.query.filter_by(project_id=project.id)
+
+    # Filtrowanie po statusie aktywności (archiwum vs aktywne)
+    if show_archived:
+        query = query.filter_by(is_active=False)
+    else:
+        query = query.filter_by(is_active=True)
 
     if search_query:
         query = query.filter(
@@ -406,15 +454,18 @@ def project_dashboard(project_id):
             ProductMapping.is_active == True,
             (ProductMapping.last_price == None) | (ProductMapping.last_price == 0)
         ).distinct()
-    # filtered_products = query.all()
+    
+    # Paginacja
     page = request.args.get('page', 1, type=int)
     pagination = query.paginate(page=page, per_page=20, error_out=False)
     filtered_products = pagination.items
 
-    available_brands = db.session.query(Brand).join(Product).filter(Product.project_id == project.id).distinct().order_by(Brand.name).all()
+    # Statystyki (liczymy tylko dla AKTYWNYCH produktów)
+    all_active_products = Product.query.filter_by(project_id=project.id, is_active=True).all()
+    available_brands = db.session.query(Brand).join(Product).filter(Product.project_id == project.id, Product.is_active == True).distinct().order_by(Brand.name).all()
 
     stats = {
-        'total_products': len(all_products),
+        'total_products': len(all_active_products),
         'total_mappings': 0,
         'increased': 0,
         'decreased': 0,
@@ -422,10 +473,11 @@ def project_dashboard(project_id):
         'avail_out_of_stock': 0,
         'avail_other': 0,
         'cheapest_count': 0,
-        'expensive_count': 0
+        'expensive_count': 0,
+        'archived_count': Product.query.filter_by(project_id=project.id, is_active=False).count()
     }
 
-    for p in all_products:
+    for p in all_active_products:
         stats['total_mappings'] += p.competitor_count
 
         status = str(p.availability).lower() if p.availability else ""
@@ -453,7 +505,7 @@ def project_dashboard(project_id):
                            pagination=pagination,
                            stats=stats,
                            available_brands=available_brands,
-                           current_filters={'q': search_query, 'brand': brand_filter, 'filter': filter_type}
+                           current_filters={'q': search_query, 'brand': brand_filter, 'filter': filter_type, 'archived': show_archived}
                            )
 
 
@@ -494,6 +546,30 @@ def add_product(project_id):
 
     return redirect(url_for('project_dashboard', project_id=project_id))
 
+@app.route('/project/<int:project_id>/sync', methods=['POST'])
+@login_required
+def sync_products(project_id):
+    project = Project.query.get_or_404(project_id)
+    if current_user not in project.users:
+        flash('Brak dostępu.', category='error')
+        return redirect(url_for('projects'))
+
+    if not project.product_feed_url:
+        flash('Brak skonfigurowanego linku do pliku XML.', category='warning')
+        return redirect(url_for('project_dashboard', project_id=project.id))
+
+    flash('Rozpoczynam synchronizację...', category='info')
+    try:
+        result = import_products_from_xml(project.product_feed_url, project.id)
+        if not result['error']:
+            flash(f"Synchronizacja zakończona. Dodano: {result['added']}, Zaktualizowano: {result['updated']}, Zarchiwizowano: {result['archived']}.", category='success')
+        else:
+            flash(f"Wystąpił błąd: {result['error']}", category='error')
+    except Exception as e:
+        logger.error(f"Sync error: {e}")
+        flash('Wystąpił błąd krytyczny podczas synchronizacji.', category='error')
+
+    return redirect(url_for('project_dashboard', project_id=project.id))
 
 # --- WIDOK SZCZEGÓŁÓW PRODUKTU ---
 @app.route('/project/<int:project_id>/product/<int:product_id>')
@@ -643,17 +719,17 @@ def refresh_prices(project_id, product_id):
 
     updated_count = 0
 
-    print(f"--- [REFRESH] Odświeżam produkt: {product.title} ---")
+    logger.info(f"--- [REFRESH] Odświeżam produkt: {product.title} ---")
 
     for mapping in product.mappings:
         if mapping.is_active:
-            print(f" -> Sprawdzam URL: {mapping.url}")
+            logger.info(f" -> Sprawdzam URL: {mapping.url}")
 
             try:
                 result = get_current_price(mapping.url)
 
                 if not result or not isinstance(result, tuple):
-                    print(f"    !!! BŁĄD: Scraper zwrócił błędne dane: {result}")
+                    logger.warning(f"    !!! BŁĄD: Scraper zwrócił błędne dane: {result}")
                     continue
 
                 new_price, is_avail = result
@@ -670,12 +746,12 @@ def refresh_prices(project_id, product_id):
                     )
                     db.session.add(history)
                     updated_count += 1
-                    print(f"    -> Sukces: {new_price} PLN (Dostępny: {is_avail})")
+                    logger.info(f"    -> Sukces: {new_price} PLN (Dostępny: {is_avail})")
                 else:
-                    print("    -> Brak ceny (strona nie zwróciła wyniku)")
+                    logger.warning("    -> Brak ceny (strona nie zwróciła wyniku)")
 
             except Exception as e:
-                print(f"    !!! KRTYYCZNY BŁĄD przy linku {mapping.url}: {e}")
+                logger.error(f"    !!! KRTYYCZNY BŁĄD przy linku {mapping.url}: {e}", exc_info=True)
                 continue
 
     db.session.commit()
@@ -687,6 +763,20 @@ def refresh_prices(project_id, product_id):
 
     return redirect(url_for('product_details', project_id=project_id, product_id=product_id))
 
+@app.route('/project/<int:project_id>/product/<int:product_id>/restore', methods=['POST'])
+@login_required
+def restore_product(project_id, product_id):
+    project = Project.query.get_or_404(project_id)
+    if current_user not in project.users:
+        flash('Brak dostępu.', category='error')
+        return redirect(url_for('projects'))
+
+    product = Product.query.get_or_404(product_id)
+    product.is_active = True
+    db.session.commit()
+
+    flash(f'Produkt "{product.title}" został przywrócony.', category='success')
+    return redirect(url_for('project_dashboard', project_id=project.id, archived='true'))
 
 # --- USUWANIE PRODUKTU ---
 @app.route('/project/<int:project_id>/product/<int:product_id>/delete', methods=['POST'])
@@ -789,13 +879,13 @@ def delete_task(project_id, task_id):
     return redirect(url_for('project_scheduler', project_id=project_id))
 
 def send_enhanced_report(task_name, scan_results):
-    print(f"[MAIL] Rozpoczynam przygotowanie raportu: {task_name}")
+    logger.info(f"[MAIL] Rozpoczynam przygotowanie raportu: {task_name}")
     if not scan_results:
-        print("[MAIL] Brak wyników do wysłania.")
+        logger.info("[MAIL] Brak wyników do wysłania.")
         return
 
     try:
-        print("[MAIL] Generuję plik CSV...")
+        logger.info("[MAIL] Generuję plik CSV...")
         csv_buffer = io.StringIO()
         csv_writer = csv.writer(csv_buffer, delimiter=';', quoting=csv.QUOTE_MINIMAL)
         csv_writer.writerow(['Produkt', 'SKU', 'Sklep', 'Status', 'Stara Cena', 'Nowa Cena', 'Zmiana', 'Link', 'Info'])
@@ -838,7 +928,7 @@ def send_enhanced_report(task_name, scan_results):
         # except:
         #     pass
 
-        print("[MAIL] Generuję treść HTML...")
+        logger.info("[MAIL] Generuję treść HTML...")
         html_body = f"""
         <html>
         <body style="font-family: Arial, sans-serif; color: #333;">
@@ -910,7 +1000,7 @@ def send_enhanced_report(task_name, scan_results):
         </body>
         </html>
         """
-        print("[MAIL] Łączę z serwerem SMTP...")
+        logger.info("[MAIL] Łączę z serwerem SMTP...")
         recipient = app.config.get('MAIL_RECIPIENT') or app.config['MAIL_DEFAULT_SENDER']
         try:
             msg = Message(f"{task_name} - Raport Cenowy", recipients=[recipient])
@@ -919,13 +1009,11 @@ def send_enhanced_report(task_name, scan_results):
             msg.attach("raport_skanowania.csv", "text/csv", csv_buffer.getvalue().encode('utf-8-sig'))
 
             mail.send(msg)
-            print("--- [MAIL] Raport Enhanced wysłany! ---")
+            logger.info("--- [MAIL] Raport Enhanced wysłany! ---")
         except Exception as e:
-            print(f"--- [MAIL ERROR] {e}")
+            logger.error(f"--- [MAIL ERROR] {e}", exc_info=True)
     except Exception as e:
-        print(f"[MAIL CRITICAL ERROR] Nie udało się wysłać maila: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.critical(f"[MAIL CRITICAL ERROR] Nie udało się wysłać maila: {e}", exc_info=True)
 
 @scheduler.task('interval', id='main_scanner_job', seconds=60)
 def run_scheduled_scans():
@@ -934,6 +1022,16 @@ def run_scheduled_scans():
         current_time = now.strftime("%H:%M")
         today_date = date.today()
 
+        # 1. Sprawdzamy, czy trzeba uruchomić automatyczną synchronizację feedów (np. o 04:00)
+        if current_time == "04:00":
+            logger.info("--- [AUTO SYNC] Rozpoczynam automatyczną synchronizację feedów ---")
+            projects_with_feed = Project.query.filter(Project.product_feed_url != None).all()
+            for proj in projects_with_feed:
+                if proj.product_feed_url:
+                    logger.info(f"Synchronizacja projektu: {proj.name}")
+                    import_products_from_xml(proj.product_feed_url, proj.id)
+
+        # 2. Standardowe zadania sprawdzania cen
         tasks = ScheduledTask.query.filter_by(is_active=True).all()
         tasks_to_run = []
 
@@ -946,7 +1044,7 @@ def run_scheduled_scans():
         if not tasks_to_run:
             return
 
-        print(f"--- [SCHEDULER] Uruchamiam {len(tasks_to_run)} zadań ---")
+        logger.info(f"--- [SCHEDULER] Uruchamiam {len(tasks_to_run)} zadań ---")
 
         for task in tasks_to_run:
             task_name = f"Raport ({current_time})"
@@ -962,7 +1060,7 @@ def run_scheduled_scans():
                     if mapping.is_active:
                         old_price = mapping.last_price
 
-                        print(f"Sprawdzam: {mapping.shop.name} -> {mapping.url[:30]}...")
+                        logger.info(f"Sprawdzam: {mapping.shop.name} -> {mapping.url[:30]}...")
 
                         try:
                             result = get_current_price(mapping.url)
@@ -971,7 +1069,8 @@ def run_scheduled_scans():
                             else:
                                 new_price = None
                                 is_avail = False
-                        except Exception:
+                        except Exception as e:
+                            logger.error(f"Error scanning {mapping.url}: {e}")
                             new_price = None
                             is_avail = False
 
@@ -997,23 +1096,23 @@ def run_scheduled_scans():
                             result_entry['msg'] = 'Nie znaleziono ceny'
 
                         if new_price:
-                            print(f"Sukces: {new_price} PLN")
+                            logger.info(f"Sukces: {new_price} PLN")
                         else:
-                            print(f"Błąd: Nie znaleziono ceny")
+                            logger.warning(f"Błąd: Nie znaleziono ceny")
 
                         scan_results.append(result_entry)
 
-            print("Zapisuję wyniki do bazy danych...")
+            logger.info("Zapisuję wyniki do bazy danych...")
             task.last_run_date = today_date
             db.session.commit()
 
             if scan_results:
                 try:
-                    print(f"Generuję raport i wysyłam maila ({len(scan_results)} produktów)...")
+                    logger.info(f"Generuję raport i wysyłam maila ({len(scan_results)} produktów)...")
                     send_enhanced_report(task_name, scan_results)
-                    print(f"[SCHEDULER] Zadanie wykonane. Raport wysłany!")
+                    logger.info(f"[SCHEDULER] Zadanie wykonane. Raport wysłany!")
                 except Exception as e:
-                    print(f"[SCHEDULER ERROR] Zadanie wykonane, ale błąd wysyłki: {e}")
+                    logger.error(f"[SCHEDULER ERROR] Zadanie wykonane, ale błąd wysyłki: {e}", exc_info=True)
 
 # --- RĘCZNE WYMUSZENIE SKANOWANIA ---
 @app.route('/project/<int:project_id>/scheduler/force-run', methods=['POST'])
@@ -1029,7 +1128,7 @@ def force_run_scheduler(project_id):
         flash('Brak aktywnych zadań.', category='warning')
         return redirect(url_for('project_scheduler', project_id=project.id))
 
-    print(f"--- [FORCE RUN] Start {len(tasks)} zadań ---")
+    logger.info(f"--- [FORCE RUN] Start {len(tasks)} zadań ---")
     total_scanned = 0
 
     for task in tasks:
@@ -1054,7 +1153,8 @@ def force_run_scheduler(project_id):
                         else:
                             new_price = None
                             is_avail = False
-                    except:
+                    except Exception as e:
+                        logger.warning(f"Error scanning {mapping.url}: {e}")
                         new_price = None
                         is_avail = False
 
@@ -1088,8 +1188,8 @@ def force_run_scheduler(project_id):
         if scan_results:
             try:
                 send_enhanced_report(task_name, scan_results)
-            except:
-                pass
+            except Exception as e:
+                logger.error(f"Error sending report: {e}", exc_info=True)
 
     flash(f'Zakończono. Sprawdzono {total_scanned} linków.', category='success')
     return redirect(url_for('project_scheduler', project_id=project.id))
@@ -1124,7 +1224,8 @@ def run_single_task(project_id, task_id):
                     else:
                         new_price = None
                         is_avail = False
-                except:
+                except Exception as e:
+                    logger.warning(f"Error scanning {mapping.url}: {e}")
                     new_price = None
                     is_avail = False
 
@@ -1158,7 +1259,8 @@ def run_single_task(project_id, task_id):
         try:
             send_enhanced_report(task_name, scan_results)
             flash(f'Zadanie wykonane. Raport wysłany!', category='success')
-        except:
+        except Exception as e:
+            logger.error(f"Error sending report: {e}", exc_info=True)
             flash(f'Zadanie wykonane, błąd wysyłki.', category='warning')
 
     return redirect(url_for('project_scheduler', project_id=project_id))

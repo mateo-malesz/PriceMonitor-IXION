@@ -10,12 +10,36 @@
                     <p class="text-muted">Znaleziono {{ pagination.total }} produtków</p>
                 </div>
                 <div>
-                    <button class="btn btn-outline-secondary me-2">Zarzązdaj</button>
+                    {% if project.product_feed_url %}
+                        <form method="POST" action="{{ url_for('sync_products', project_id=project.id) }}" style="display: inline;">
+                            <button type="submit" class="btn btn-outline-success me-2" title="Pobierz produkty z pliku XML">
+                                <i class="bi bi-arrow-repeat"></i> Synchronizuj
+                            </button>
+                        </form>
+                    {% endif %}
+                    <button class="btn btn-outline-secondary me-2">Zarządzaj</button>
                     <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addProductModal">
-    <i class="bi bi-plus-lg"></i> Dodaj Produkt
-</button>
+                        <i class="bi bi-plus-lg"></i> Dodaj Produkt
+                    </button>
                 </div>
             </div>
+
+<!-- ZAKŁADKI: AKTYWNE / ARCHIWUM -->
+<ul class="nav nav-tabs mb-4">
+  <li class="nav-item">
+    <a class="nav-link {% if not current_filters.archived %}active fw-bold{% endif %}"
+       href="{{ url_for('project_dashboard', project_id=project.id, q=current_filters.q, brand=current_filters.brand, filter=current_filters.filter) }}">
+       <i class="bi bi-box-seam me-1"></i> Aktywne
+    </a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link {% if current_filters.archived %}active fw-bold text-secondary{% else %}text-muted{% endif %}"
+       href="{{ url_for('project_dashboard', project_id=project.id, archived='true', q=current_filters.q, brand=current_filters.brand, filter=current_filters.filter) }}">
+       <i class="bi bi-archive me-1"></i> Archiwum <span class="badge bg-secondary rounded-pill ms-1">{{ stats.archived_count }}</span>
+    </a>
+  </li>
+</ul>
+
 {% if current_filters.filter == 'errors' %}
     <div class="alert alert-danger d-flex justify-content-between align-items-center shadow-sm mt-3">
         <div>
@@ -27,9 +51,15 @@
         </a>
     </div>
 {% endif %}
+
 <div class="card shadow-sm border-0 mb-4 bg-light">
     <div class="card-body py-3">
         <form method="GET" action="{{ url_for('project_dashboard', project_id=project.id) }}" class="row g-2 align-items-center">
+
+            <!-- Zachowujemy stan zakładki przy filtrowaniu -->
+            {% if current_filters.archived %}
+                <input type="hidden" name="archived" value="true">
+            {% endif %}
 
             <div class="col-md-5">
                 <div class="input-group">
@@ -54,7 +84,7 @@
                 <button type="submit" class="btn btn-primary px-4">Filtruj</button>
 
                 {% if current_filters.q or current_filters.brand %}
-                    <a href="{{ url_for('project_dashboard', project_id=project.id) }}" class="btn btn-outline-secondary">
+                    <a href="{{ url_for('project_dashboard', project_id=project.id, archived=current_filters.archived) }}" class="btn btn-outline-secondary">
                         <i class="bi bi-x-lg"></i> Wyczyść
                     </a>
                 {% endif %}
@@ -99,11 +129,11 @@
 </thead>
                     <tbody>
                         {% for product in products %}
-                        <tr>
+                        <tr {% if not product.is_active %}class="table-secondary text-muted"{% endif %}>
     <td class="ps-4 position-relative">
         <div class="d-flex align-items-center">
             {% if product.image_link %}
-                <img src="{{ product.image_link }}" alt="img" class="rounded border me-3" style="width: 48px; height: 48px; object-fit: contain; background: #fff;">
+                <img src="{{ product.image_link }}" alt="img" class="rounded border me-3" style="width: 48px; height: 48px; object-fit: contain; background: #fff; opacity: {{ '0.6' if not product.is_active else '1' }};">
             {% else %}
                 <div class="rounded border me-3 d-flex align-items-center justify-content-center bg-light text-muted" style="width: 48px; height: 48px;">
                     <i class="bi bi-box-seam"></i>
@@ -112,9 +142,12 @@
 
             <div>
                 <div class="fw-bold">
-                    <a href="{{ url_for('product_details', project_id=project.id, product_id=product.id) }}" class="text-decoration-none text-dark stretched-link">
+                    <a href="{{ url_for('product_details', project_id=project.id, product_id=product.id) }}" class="text-decoration-none {{ 'text-muted' if not product.is_active else 'text-dark' }} stretched-link">
                         {{ product.title }}
                     </a>
+                    {% if not product.is_active %}
+                        <span class="badge bg-secondary ms-2" style="font-size: 0.6rem;">ARCHIWUM</span>
+                    {% endif %}
                 </div>
                 {% if product.my_url %}
 <a href="{{ product.my_url }}" target="_blank" class="small text-muted text-decoration-none position-relative" style="z-index: 2;">
@@ -140,7 +173,7 @@
     </td>
 
     <td>
-        <div class="fw-bold text-success">
+        <div class="fw-bold {{ 'text-success' if product.is_active else 'text-muted' }}">
             {{ "%.2f"|format(product.my_price) if product.my_price else '-' }} PLN
         </div>
 
@@ -175,11 +208,23 @@
         {% endif %}
     </td>
 
-    <td class="text-end pe-4" style="z-index: 2; position: relative;"> <form method="POST"
+    <td class="text-end pe-4" style="z-index: 2; position: relative;">
+        {% if not product.is_active %}
+            <!-- Przycisk przywracania z archiwum -->
+            <form method="POST"
+                  action="{{ url_for('restore_product', project_id=project.id, product_id=product.id) }}"
+                  style="display: inline;">
+                <button type="submit" class="btn btn-sm btn-outline-success border-0" title="Przywróć produkt">
+                    <i class="bi bi-arrow-counterclockwise"></i>
+                </button>
+            </form>
+        {% endif %}
+
+        <form method="POST"
               action="{{ url_for('delete_product', project_id=project.id, product_id=product.id) }}"
-              onsubmit="return confirm('Usunąć ten produkt?');"
+              onsubmit="return confirm('Usunąć ten produkt trwale?');"
               style="display: inline;">
-            <button type="submit" class="btn btn-sm btn-outline-danger border-0">
+            <button type="submit" class="btn btn-sm btn-outline-danger border-0" title="Usuń trwale">
                 <i class="bi bi-trash"></i>
             </button>
         </form>
@@ -187,9 +232,13 @@
 </tr>
                         {% else %}
                         <tr>
-                            <td colspan="4" class="text-center py-5 text-muted">
+                            <td colspan="6" class="text-center py-5 text-muted">
                                 <i class="bi bi-box-seam display-6 mb-3 d-block"></i>
-                                Brak produktów. Dodaj coś przyciskiem powyżej.
+                                {% if current_filters.archived %}
+                                    Brak zarchiwizowanych produktów.
+                                {% else %}
+                                    Brak aktywnych produktów. Dodaj coś przyciskiem powyżej.
+                                {% endif %}
                             </td>
                         </tr>
                         {% endfor %}
@@ -202,13 +251,13 @@
         <nav aria-label="Nawigacja stron" class="mt-4 mb-4">
             <ul class="pagination justify-content-center">
                 <li class="page-item {% if not pagination.has_prev %}disabled{% endif %}">
-                    <a class="page-link" href="{{ url_for('project_dashboard', project_id=project.id, page=pagination.prev_num, q=current_filters.q, brand=current_filters.brand, filter=current_filters.filter) }}">Poprzednia</a>
+                    <a class="page-link" href="{{ url_for('project_dashboard', project_id=project.id, page=pagination.prev_num, q=current_filters.q, brand=current_filters.brand, filter=current_filters.filter, archived=current_filters.archived) }}">Poprzednia</a>
                 </li>
 
                 {% for page_num in pagination.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
                     {% if page_num %}
                         <li class="page-item {% if page_num == pagination.page %}active{% endif %}">
-                            <a class="page-link" href="{{ url_for('project_dashboard', project_id=project.id, page=page_num, q=current_filters.q, brand=current_filters.brand, filter=current_filters.filter) }}">{{ page_num }}</a>
+                            <a class="page-link" href="{{ url_for('project_dashboard', project_id=project.id, page=page_num, q=current_filters.q, brand=current_filters.brand, filter=current_filters.filter, archived=current_filters.archived) }}">{{ page_num }}</a>
                         </li>
                     {% else %}
                         <li class="page-item disabled"><span class="page-link">...</span></li>
@@ -216,7 +265,7 @@
                 {% endfor %}
 
                 <li class="page-item {% if not pagination.has_next %}disabled{% endif %}">
-                    <a class="page-link" href="{{ url_for('project_dashboard', project_id=project.id, page=pagination.next_num, q=current_filters.q, brand=current_filters.brand, filter=current_filters.filter) }}">Następna</a>
+                    <a class="page-link" href="{{ url_for('project_dashboard', project_id=project.id, page=pagination.next_num, q=current_filters.q, brand=current_filters.brand, filter=current_filters.filter, archived=current_filters.archived) }}">Następna</a>
                 </li>
             </ul>
         </nav>
