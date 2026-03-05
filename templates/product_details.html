@@ -60,7 +60,7 @@
             <div class="col-md-3 text-md-end mt-4 mt-md-0 d-flex flex-column justify-content-center border-start ps-4 py-3 bg-light rounded-end">
                 <small class="text-muted text-uppercase mb-1 fw-bold ls-1">Twoja cena</small>
                 <div class="display-6 text-success fw-bolder mb-0">
-                    {{ "%.2f"|format(product.my_price) if product.my_price else "0.00" }} <span class="fs-4 text-muted fw-bold">PLN</span>
+                    {{ "{:,.2f}".format(product.my_price).replace(',', ' ') if product.my_price else '-' }} <span class="fs-4 text-muted fw-bold">PLN</span>
                 </div>
 
                 {% if product.gtin %}

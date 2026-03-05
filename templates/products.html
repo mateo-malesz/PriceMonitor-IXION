@@ -25,53 +25,43 @@
             </div>
 
 <!-- ZAKŁADKI: AKTYWNE / ARCHIWUM -->
-<ul class="nav nav-tabs mb-4">
-  <li class="nav-item">
-    <a class="nav-link {% if not current_filters.archived %}active fw-bold{% endif %}"
-       href="{{ url_for('project_dashboard', project_id=project.id, q=current_filters.q, brand=current_filters.brand, filter=current_filters.filter) }}">
-       <i class="bi bi-box-seam me-1"></i> Aktywne
-    </a>
-  </li>
-  <li class="nav-item">
-    <a class="nav-link {% if current_filters.archived %}active fw-bold text-secondary{% else %}text-muted{% endif %}"
-       href="{{ url_for('project_dashboard', project_id=project.id, archived='true', q=current_filters.q, brand=current_filters.brand, filter=current_filters.filter) }}">
-       <i class="bi bi-archive me-1"></i> Archiwum <span class="badge bg-secondary rounded-pill ms-1">{{ stats.archived_count }}</span>
-    </a>
-  </li>
-</ul>
+<div class="d-flex mb-3">
+    <ul class="nav nav-pills bg-light border p-1 rounded-3 shadow-sm">
+        <li class="nav-item">
+            <a class="nav-link rounded-2 py-1 px-4 {% if not current_filters.archived %}active bg-white text-dark fw-bold shadow-sm border{% else %}text-muted border border-transparent{% endif %}"
+               href="{{ url_for('project_dashboard', project_id=project.id, q=current_filters.q, brand=current_filters.brand, filter=current_filters.filter) }}">
+               <i class="bi bi-box-seam me-2 {% if not current_filters.archived %}text-primary{% endif %}"></i> Aktywne
+            </a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link rounded-2 py-1 px-4 {% if current_filters.archived %}active bg-white text-dark fw-bold shadow-sm border{% else %}text-muted border border-transparent{% endif %}"
+               href="{{ url_for('project_dashboard', project_id=project.id, archived='true', q=current_filters.q, brand=current_filters.brand, filter=current_filters.filter) }}">
+               <i class="bi bi-archive me-2 {% if current_filters.archived %}text-primary{% endif %}"></i> Archiwum
+               <span class="badge {% if current_filters.archived %}bg-primary{% else %}bg-secondary{% endif %} rounded-pill ms-2">{{ stats.archived_count }}</span>
+            </a>
+        </li>
+    </ul>
+</div>
 
-{% if current_filters.filter == 'errors' %}
-    <div class="alert alert-danger d-flex justify-content-between align-items-center shadow-sm mt-3">
-        <div>
-            <i class="bi bi-exclamation-octagon-fill me-2"></i>
-            <strong>Tryb naprawczy:</strong> Wyświetlasz tylko produkty z uszkodzonymi linkami (404 / Brak ceny).
-        </div>
-        <a href="{{ url_for('project_dashboard', project_id=project.id) }}" class="btn btn-sm btn-outline-danger bg-white">
-            <i class="bi bi-x-lg"></i> Pokaż Wszystkie
-        </a>
-    </div>
-{% endif %}
+<div class="card shadow-sm border-0 mb-4">
+    <div class="card-body p-3">
+        <form method="GET" action="{{ url_for('project_dashboard', project_id=project.id) }}" class="row g-3 align-items-center">
 
-<div class="card shadow-sm border-0 mb-4 bg-light">
-    <div class="card-body py-3">
-        <form method="GET" action="{{ url_for('project_dashboard', project_id=project.id) }}" class="row g-2 align-items-center">
-
-            <!-- Zachowujemy stan zakładki przy filtrowaniu -->
             {% if current_filters.archived %}
                 <input type="hidden" name="archived" value="true">
             {% endif %}
 
-            <div class="col-md-5">
+            <div class="col-md-5 col-lg-4">
                 <div class="input-group">
-                    <span class="input-group-text bg-white border-end-0"><i class="bi bi-search text-muted"></i></span>
+                    <span class="input-group-text bg-white text-muted border-end-0"><i class="bi bi-search"></i></span>
                     <input type="text" name="q" class="form-control border-start-0 ps-0"
                            placeholder="Szukaj po nazwie lub SKU..."
                            value="{{ current_filters.q }}">
                 </div>
             </div>
 
-            <div class="col-md-3">
-                <select name="brand" class="form-select">
+            <div class="col-md-4 col-lg-3">
+                <select name="brand" class="form-select text-muted">
                     <option value="">Wszystkie Marki</option>
                     {% for brand in available_brands %}
                         <option value="{{ brand.id }}" {% if current_filters.brand|int == brand.id %}selected{% endif %}>
@@ -80,19 +70,25 @@
                     {% endfor %}
                 </select>
             </div>
-            <div class="col-md-4 d-flex gap-2">
-                <button type="submit" class="btn btn-primary px-4">Filtruj</button>
+
+            <div class="col-md-12 col-lg-5 d-flex justify-content-lg-end align-items-center gap-2 mt-3 mt-lg-0">
+                <button type="submit" class="btn btn-primary px-4"><i class="bi bi-funnel me-1"></i> Filtruj</button>
 
                 {% if current_filters.q or current_filters.brand %}
-                    <a href="{{ url_for('project_dashboard', project_id=project.id, archived=current_filters.archived) }}" class="btn btn-outline-secondary">
-                        <i class="bi bi-x-lg"></i> Wyczyść
+                    <a href="{{ url_for('project_dashboard', project_id=project.id, archived=current_filters.archived) }}" class="btn btn-outline-secondary px-3" title="Wyczyść filtry">
+                        <i class="bi bi-x-lg"></i>
                     </a>
                 {% endif %}
 
-                <div class="ms-auto text-muted small align-self-center">
-                    Wyników: <strong>{{ pagination.total }}</strong>
+                <div class="ms-3 text-muted small border-start ps-3 py-1 d-none d-md-block">
+                    Wyników: <strong class="text-dark fs-6">{{ pagination.total }}</strong>
                 </div>
             </div>
+
+            <div class="col-12 d-md-none text-muted small text-center mt-2">
+                Wyników: <strong class="text-dark">{{ pagination.total }}</strong>
+            </div>
+
         </form>
     </div>
 </div>
@@ -104,26 +100,21 @@
                 <table class="table table-hover align-middle mb-0">
 <thead class="bg-light">
     <tr>
-        <th class="ps-4" style="cursor: pointer;" onclick="sortTable(0)">
-            Produkt <i class="bi bi-arrow-down-up ms-1 small opacity-50"></i>
+        <th class="ps-4 w-50" style="cursor: pointer;" onclick="sortTable(0)">
+            Produkt <i class="bi bi-arrow-down-up ms-1 small text-muted" style="font-size: 0.7rem;"></i>
         </th>
-
         <th style="cursor: pointer;" onclick="sortTable(1)">
-            Marka <i class="bi bi-arrow-down-up ms-1 small opacity-50"></i>
+            Marka <i class="bi bi-arrow-down-up ms-1 small text-muted" style="font-size: 0.7rem;"></i>
         </th>
-
         <th style="cursor: pointer;" onclick="sortTable(2)">
-            SKU <i class="bi bi-arrow-down-up ms-1 small opacity-50"></i>
+            SKU <i class="bi bi-arrow-down-up ms-1 small text-muted" style="font-size: 0.7rem;"></i>
         </th>
-
-        <th style="cursor: pointer; white-space: nowrap;" onclick="sortTable(3, true)">
-            Twoja Cena <i class="bi bi-arrow-down-up ms-1 small opacity-50"></i>
+        <th class="text-end" style="cursor: pointer; white-space: nowrap;" onclick="sortTable(3, true)">
+            Twoja Cena <i class="bi bi-arrow-down-up ms-1 small text-muted" style="font-size: 0.7rem;"></i>
         </th>
-
-        <th class="text-end pe-4" style="cursor: pointer;" onclick="sortTable(4)">
-            Status <i class="bi bi-arrow-down-up ms-1 small opacity-50"></i>
+        <th class="text-center" style="cursor: pointer;" onclick="sortTable(4)">
+            Status <i class="bi bi-arrow-down-up ms-1 small text-muted" style="font-size: 0.7rem;"></i>
         </th>
-
         <th class="text-end pe-4">Akcja</th>
     </tr>
 </thead>
@@ -172,39 +163,43 @@
         <span class="small font-monospace text-muted">{{ product.sku or '-' }}</span>
     </td>
 
-    <td>
-        <div class="fw-bold {{ 'text-success' if product.is_active else 'text-muted' }}">
-            {{ "%.2f"|format(product.my_price) if product.my_price else '-' }} PLN
+<td class="text-end">
+        <div class="d-flex flex-column align-items-end">
+            <div class="fw-bold {{ 'text-success' if product.is_active else 'text-muted' }}">
+    {{ "{:,.2f}".format(product.my_price).replace(',', ' ') if product.my_price else '-' }} PLN
+</div>
+
+            {% set status = product.availability|lower|replace('_', ' ') if product.availability else '' %}
+
+            {% if 'in stock' in status %}
+                <span class="badge bg-success-subtle text-success border border-success-subtle mt-1" style="font-size: 0.7rem;">
+                    <i class="bi bi-check-circle-fill me-1"></i>Dostępny
+                </span>
+            {% elif 'out of stock' in status %}
+                <span class="badge bg-danger-subtle text-danger border border-danger-subtle mt-1" style="font-size: 0.7rem;">
+                    <i class="bi bi-x-circle-fill me-1"></i>Niedostępny
+                </span>
+            {% elif 'preorder' in status %}
+                <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle mt-1" style="font-size: 0.7rem;">
+                    <i class="bi bi-clock-history me-1"></i>Przedsprzedaż
+                </span>
+            {% else %}
+                <span class="badge bg-light text-muted border mt-1" style="font-size: 0.7rem;">
+                    {{ product.availability or 'Brak danych' }}
+                </span>
+            {% endif %}
         </div>
-
-        {% set status = product.availability|lower|replace('_', ' ') if product.availability else '' %}
-
-        {% if 'in stock' in status %}
-            <span class="badge bg-success-subtle text-success border border-success-subtle" style="font-size: 0.7rem;">
-                <i class="bi bi-check-circle-fill me-1"></i>Dostępny
-            </span>
-        {% elif 'out of stock' in status %}
-            <span class="badge bg-danger-subtle text-danger border border-danger-subtle" style="font-size: 0.7rem;">
-                <i class="bi bi-x-circle-fill me-1"></i>Niedostępny
-            </span>
-        {% elif 'preorder' in status %}
-            <span class="badge bg-warning-subtle text-warning border border-warning-subtle" style="font-size: 0.7rem;">
-                <i class="bi bi-clock-history me-1"></i>Przedsprzedaż
-            </span>
-        {% else %}
-            <span class="badge bg-light text-muted border" style="font-size: 0.7rem;">
-                {{ product.availability or 'Brak danych' }}
-            </span>
-        {% endif %}
     </td>
 
-    <td class="text-end pe-4">
+<td class="text-center">
         {% if product.competitor_count > 0 %}
             <span class="badge bg-success-subtle text-success border border-success-subtle px-2 py-1 rounded-2">
-    Monitorowany ({{ product.competitor_count }})
-</span>
+                Monitorowany ({{ product.competitor_count }})
+            </span>
         {% else %}
-            <span class="badge bg-warning-subtle text-warning">Brak linków</span>
+            <span class="badge bg-warning-subtle text-dark border border-warning-subtle px-2 py-1 rounded-2">
+                Brak linków
+            </span>
         {% endif %}
     </td>
 
@@ -220,11 +215,11 @@
             </form>
         {% endif %}
 
-        <form method="POST"
+<form method="POST"
               action="{{ url_for('delete_product', project_id=project.id, product_id=product.id) }}"
               onsubmit="return confirm('Usunąć ten produkt trwale?');"
               style="display: inline;">
-            <button type="submit" class="btn btn-sm btn-outline-danger border-0" title="Usuń trwale">
+            <button type="submit" class="btn btn-sm btn-outline-secondary border-0" title="Usuń trwale">
                 <i class="bi bi-trash"></i>
             </button>
         </form>
