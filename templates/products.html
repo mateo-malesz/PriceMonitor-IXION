@@ -4,6 +4,29 @@
 
 {% block content %}
 
+{# --- MAKRO DO GENEROWANIA LINKÓW SORTOWANIA --- #}
+{% macro sort_link(column_key, label) %}
+    {% set current_sort = current_filters.sort %}
+    {% set current_order = current_filters.order %}
+    {% set new_order = 'asc' %}
+    {% set icon_class = 'bi bi-arrow-down-up ms-1 small text-muted' %}
+
+    {% if current_sort == column_key %}
+        {% if current_order == 'asc' %}
+            {% set new_order = 'desc' %}
+            {% set icon_class = 'bi bi-arrow-up ms-1 small text-dark' %}
+        {% else %}
+            {% set new_order = 'asc' %}
+            {% set icon_class = 'bi bi-arrow-down ms-1 small text-dark' %}
+        {% endif %}
+    {% endif %}
+
+    <a href="{{ url_for('project_dashboard', project_id=project.id, sort=column_key, order=new_order, q=current_filters.q, brand=current_filters.brand, availability=current_filters.availability, filter=current_filters.filter, archived=current_filters.archived) }}"
+       class="text-decoration-none text-dark fw-bold d-block" style="font-size: 0.9rem;">
+        {{ label }} <i class="{{ icon_class }}" style="font-size: 0.7rem;"></i>
+    </a>
+{% endmacro %}
+
             <div class="d-flex justify-content-between align-items-center mb-4">
                 <div>
                     <h2 class="fw-bold">Produkty</h2>
@@ -29,19 +52,31 @@
     <ul class="nav nav-pills bg-light border p-1 rounded-3 shadow-sm">
         <li class="nav-item">
             <a class="nav-link rounded-2 py-1 px-4 {% if not current_filters.archived %}active bg-white text-dark fw-bold shadow-sm border{% else %}text-muted border border-transparent{% endif %}"
-               href="{{ url_for('project_dashboard', project_id=project.id, q=current_filters.q, brand=current_filters.brand, filter=current_filters.filter) }}">
+               href="{{ url_for('project_dashboard', project_id=project.id, q=current_filters.q, brand=current_filters.brand, availability=current_filters.availability, filter=current_filters.filter) }}">
                <i class="bi bi-box-seam me-2 {% if not current_filters.archived %}text-primary{% endif %}"></i> Aktywne
             </a>
         </li>
         <li class="nav-item">
             <a class="nav-link rounded-2 py-1 px-4 {% if current_filters.archived %}active bg-white text-dark fw-bold shadow-sm border{% else %}text-muted border border-transparent{% endif %}"
-               href="{{ url_for('project_dashboard', project_id=project.id, archived='true', q=current_filters.q, brand=current_filters.brand, filter=current_filters.filter) }}">
+               href="{{ url_for('project_dashboard', project_id=project.id, archived='true', q=current_filters.q, brand=current_filters.brand, availability=current_filters.availability, filter=current_filters.filter) }}">
                <i class="bi bi-archive me-2 {% if current_filters.archived %}text-primary{% endif %}"></i> Archiwum
                <span class="badge {% if current_filters.archived %}bg-primary{% else %}bg-secondary{% endif %} rounded-pill ms-2">{{ stats.archived_count }}</span>
             </a>
         </li>
     </ul>
 </div>
+
+{% if current_filters.filter == 'errors' %}
+    <div class="alert alert-danger d-flex justify-content-between align-items-center shadow-sm mt-3">
+        <div>
+            <i class="bi bi-exclamation-octagon-fill me-2"></i>
+            <strong>Tryb naprawczy:</strong> Wyświetlasz tylko produkty z uszkodzonymi linkami (404 / Brak ceny).
+        </div>
+        <a href="{{ url_for('project_dashboard', project_id=project.id) }}" class="btn btn-sm btn-outline-danger bg-white">
+            <i class="bi bi-x-lg"></i> Pokaż Wszystkie
+        </a>
+    </div>
+{% endif %}
 
 <div class="card shadow-sm border-0 mb-4">
     <div class="card-body p-3">
@@ -51,7 +86,11 @@
                 <input type="hidden" name="archived" value="true">
             {% endif %}
 
-            <div class="col-md-5 col-lg-4">
+            <!-- Zachowujemy sortowanie przy filtrowaniu -->
+            <input type="hidden" name="sort" value="{{ current_filters.sort }}">
+            <input type="hidden" name="order" value="{{ current_filters.order }}">
+
+            <div class="col-md-4 col-lg-3">
                 <div class="input-group">
                     <span class="input-group-text bg-white text-muted border-end-0"><i class="bi bi-search"></i></span>
                     <input type="text" name="q" class="form-control border-start-0 ps-0"
@@ -60,7 +99,7 @@
                 </div>
             </div>
 
-            <div class="col-md-4 col-lg-3">
+            <div class="col-md-3 col-lg-2">
                 <select name="brand" class="form-select text-muted">
                     <option value="">Wszystkie Marki</option>
                     {% for brand in available_brands %}
@@ -71,10 +110,21 @@
                 </select>
             </div>
 
+            <div class="col-md-3 col-lg-2">
+                <select name="availability" class="form-select text-muted">
+                    <option value="">Wszystkie Statusy</option>
+                    {% for status in available_statuses %}
+                        <option value="{{ status }}" {% if current_filters.availability == status %}selected{% endif %}>
+                            {{ status }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+
             <div class="col-md-12 col-lg-5 d-flex justify-content-lg-end align-items-center gap-2 mt-3 mt-lg-0">
                 <button type="submit" class="btn btn-primary px-4"><i class="bi bi-funnel me-1"></i> Filtruj</button>
 
-                {% if current_filters.q or current_filters.brand %}
+                {% if current_filters.q or current_filters.brand or current_filters.availability %}
                     <a href="{{ url_for('project_dashboard', project_id=project.id, archived=current_filters.archived) }}" class="btn btn-outline-secondary px-3" title="Wyczyść filtry">
                         <i class="bi bi-x-lg"></i>
                     </a>
@@ -100,20 +150,20 @@
                 <table class="table table-hover align-middle mb-0">
 <thead class="bg-light">
     <tr>
-        <th class="ps-4 w-50" style="cursor: pointer;" onclick="sortTable(0)">
-            Produkt <i class="bi bi-arrow-down-up ms-1 small text-muted" style="font-size: 0.7rem;"></i>
+        <th class="ps-4 w-50">
+            {{ sort_link('title', 'Produkt') }}
         </th>
-        <th style="cursor: pointer;" onclick="sortTable(1)">
-            Marka <i class="bi bi-arrow-down-up ms-1 small text-muted" style="font-size: 0.7rem;"></i>
+        <th>
+            {{ sort_link('brand', 'Marka') }}
         </th>
-        <th style="cursor: pointer;" onclick="sortTable(2)">
-            SKU <i class="bi bi-arrow-down-up ms-1 small text-muted" style="font-size: 0.7rem;"></i>
+        <th>
+            {{ sort_link('sku', 'SKU') }}
         </th>
-        <th class="text-end" style="cursor: pointer; white-space: nowrap;" onclick="sortTable(3, true)">
-            Twoja Cena <i class="bi bi-arrow-down-up ms-1 small text-muted" style="font-size: 0.7rem;"></i>
+        <th class="text-end">
+            {{ sort_link('price', 'Twoja Cena') }}
         </th>
-        <th class="text-center" style="cursor: pointer;" onclick="sortTable(4)">
-            Status <i class="bi bi-arrow-down-up ms-1 small text-muted" style="font-size: 0.7rem;"></i>
+        <th class="text-center">
+            {{ sort_link('status', 'Status') }}
         </th>
         <th class="text-end pe-4">Akcja</th>
     </tr>
@@ -246,13 +296,13 @@
         <nav aria-label="Nawigacja stron" class="mt-4 mb-4">
             <ul class="pagination justify-content-center">
                 <li class="page-item {% if not pagination.has_prev %}disabled{% endif %}">
-                    <a class="page-link" href="{{ url_for('project_dashboard', project_id=project.id, page=pagination.prev_num, q=current_filters.q, brand=current_filters.brand, filter=current_filters.filter, archived=current_filters.archived) }}">Poprzednia</a>
+                    <a class="page-link" href="{{ url_for('project_dashboard', project_id=project.id, page=pagination.prev_num, q=current_filters.q, brand=current_filters.brand, availability=current_filters.availability, filter=current_filters.filter, archived=current_filters.archived, sort=current_filters.sort, order=current_filters.order) }}">Poprzednia</a>
                 </li>
 
                 {% for page_num in pagination.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
                     {% if page_num %}
                         <li class="page-item {% if page_num == pagination.page %}active{% endif %}">
-                            <a class="page-link" href="{{ url_for('project_dashboard', project_id=project.id, page=page_num, q=current_filters.q, brand=current_filters.brand, filter=current_filters.filter, archived=current_filters.archived) }}">{{ page_num }}</a>
+                            <a class="page-link" href="{{ url_for('project_dashboard', project_id=project.id, page=page_num, q=current_filters.q, brand=current_filters.brand, availability=current_filters.availability, filter=current_filters.filter, archived=current_filters.archived, sort=current_filters.sort, order=current_filters.order) }}">{{ page_num }}</a>
                         </li>
                     {% else %}
                         <li class="page-item disabled"><span class="page-link">...</span></li>
@@ -260,7 +310,7 @@
                 {% endfor %}
 
                 <li class="page-item {% if not pagination.has_next %}disabled{% endif %}">
-                    <a class="page-link" href="{{ url_for('project_dashboard', project_id=project.id, page=pagination.next_num, q=current_filters.q, brand=current_filters.brand, filter=current_filters.filter, archived=current_filters.archived) }}">Następna</a>
+                    <a class="page-link" href="{{ url_for('project_dashboard', project_id=project.id, page=pagination.next_num, q=current_filters.q, brand=current_filters.brand, availability=current_filters.availability, filter=current_filters.filter, archived=current_filters.archived, sort=current_filters.sort, order=current_filters.order) }}">Następna</a>
                 </li>
             </ul>
         </nav>
@@ -386,76 +436,6 @@
                 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
 
-       <script>
-// Zmienne globalne do pamiętania kierunku sortowania
-let sortDirection = {};
-
-function sortTable(columnIndex, isNumber = false) {
-    const table = document.querySelector("table");
-    const tbody = table.querySelector("tbody");
-
-    // 1. Zamieniamy listę wierszy (HTMLCollection) na prawdziwą tablicę JavaScript
-    // Dzięki temu możemy użyć szybkiego algorytmu .sort()
-    const rows = Array.from(tbody.querySelectorAll("tr"));
-
-    // 2. Ustalamy kierunek (jak klikniesz drugi raz to odwracamy)
-    if (!sortDirection[columnIndex] || sortDirection[columnIndex] === 'asc') {
-        sortDirection[columnIndex] = 'desc';
-    } else {
-        sortDirection[columnIndex] = 'asc';
-    }
-    const dir = sortDirection[columnIndex];
-
-    // 3. Sortowanie w pamięci (To jest moment "magii", który nie zacina przeglądarki)
-    rows.sort((rowA, rowB) => {
-        // Pobieramy treść komórek
-        const cellA = rowA.cells[columnIndex].innerText.trim().toLowerCase();
-        const cellB = rowB.cells[columnIndex].innerText.trim().toLowerCase();
-
-        let valA = cellA;
-        let valB = cellB;
-
-        // Jeśli to liczby (np. cena), czyścimy je ze śmieci
-        if (isNumber) {
-            valA = parseFloat(cellA.replace(/[^0-9.-]+/g, "")) || 0;
-            valB = parseFloat(cellB.replace(/[^0-9.-]+/g, "")) || 0;
-        }
-
-        // Porównywanie
-        if (valA < valB) {
-            return dir === 'asc' ? -1 : 1;
-        }
-        if (valA > valB) {
-            return dir === 'asc' ? 1 : -1;
-        }
-        return 0;
-    });
-
-    // 4. Wrzucamy posortowane wiersze z powrotem do tabeli
-    // (Przeglądarka jest sprytna - nie usuwa ich i nie dodaje nowych, tylko przesuwa istniejące)
-    rows.forEach(row => tbody.appendChild(row));
-
-    // 5. Opcjonalnie: Aktualizacja ikonek strzałek (kosmetyka)
-    updateSortIcons(columnIndex, dir);
-}
-
-function updateSortIcons(columnIndex, dir) {
-    // Resetujemy wszystkie ikonki do domyślnych
-    document.querySelectorAll("th i").forEach(icon => {
-        icon.className = "bi bi-arrow-down-up ms-1 small opacity-50";
-    });
-
-    // Ustawiamy ikonkę na klikniętej kolumnie
-    const headers = document.querySelectorAll("th");
-    if (headers[columnIndex]) {
-        const icon = headers[columnIndex].querySelector("i");
-        if (icon) {
-            icon.className = dir === 'asc' ? "bi bi-arrow-up ms-1 small text-dark" : "bi bi-arrow-down ms-1 small text-dark";
-            icon.classList.remove("opacity-50");
-        }
-    }
-}
-</script>
                 <script>
     document.addEventListener("DOMContentLoaded", function() {
         const canvas = document.getElementById('availabilityChart');
@@ -517,7 +497,5 @@ function updateSortIcons(columnIndex, dir) {
             }
         });
     });
-
-    // ... Twój kod sortowania tabeli ...
 </script>
 {% endblock %}

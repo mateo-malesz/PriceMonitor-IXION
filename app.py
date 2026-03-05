@@ -18,7 +18,7 @@ import csv
 import io
 import logging
 from logging.handlers import RotatingFileHandler
-from sqlalchemy import func
+from sqlalchemy import func, case
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -425,11 +425,15 @@ def project_dashboard(project_id):
         flash('Brak dostępu.', category='error')
         return redirect(url_for('projects'))
 
-    # Pobieramy parametry filtrowania
+    # Pobieramy parametry filtrowania i sortowania
     search_query = request.args.get('q', '')
     brand_filter = request.args.get('brand', '')
+    availability_filter = request.args.get('availability', '')
     filter_type = request.args.get('filter', '')
     show_archived = request.args.get('archived', 'false') == 'true'
+    
+    sort_by = request.args.get('sort', 'title') # domyślnie po tytule
+    sort_order = request.args.get('order', 'asc') # domyślnie rosnąco
 
     # Budujemy zapytanie
     query = Product.query.filter_by(project_id=project.id)
@@ -449,11 +453,51 @@ def project_dashboard(project_id):
     if brand_filter and brand_filter.isdigit():
         query = query.filter_by(brand_id=int(brand_filter))
 
+    if availability_filter:
+        query = query.filter(Product.availability == availability_filter)
+
     if filter_type == 'errors':
         query = query.join(ProductMapping).filter(
             ProductMapping.is_active == True,
             (ProductMapping.last_price == None) | (ProductMapping.last_price == 0)
         ).distinct()
+        
+    # Sortowanie
+    if sort_by == 'title':
+        if sort_order == 'desc':
+            query = query.order_by(Product.title.desc())
+        else:
+            query = query.order_by(Product.title.asc())
+    elif sort_by == 'brand':
+        query = query.join(Brand, isouter=True)
+        if sort_order == 'desc':
+            query = query.order_by(Brand.name.desc())
+        else:
+            query = query.order_by(Brand.name.asc())
+    elif sort_by == 'sku':
+        if sort_order == 'desc':
+            query = query.order_by(Product.sku.desc())
+        else:
+            query = query.order_by(Product.sku.asc())
+    elif sort_by == 'price':
+        if sort_order == 'desc':
+            query = query.order_by(Product.my_price.desc())
+        else:
+            query = query.order_by(Product.my_price.asc())
+    elif sort_by == 'status':
+        # Sortowanie po liczbie konkurentów (competitor_count)
+        # Musimy użyć podzapytania lub zliczenia w zapytaniu głównym
+        
+        # Podzapytanie liczące mappingi, które NIE są linkiem własnym
+        stmt = db.session.query(func.count(ProductMapping.id)).filter(
+            ProductMapping.product_id == Product.id,
+            ProductMapping.url != Product.my_url
+        ).scalar_subquery()
+        
+        if sort_order == 'desc':
+            query = query.order_by(stmt.desc())
+        else:
+            query = query.order_by(stmt.asc())
     
     # Paginacja
     page = request.args.get('page', 1, type=int)
@@ -463,6 +507,10 @@ def project_dashboard(project_id):
     # Statystyki (liczymy tylko dla AKTYWNYCH produktów)
     all_active_products = Product.query.filter_by(project_id=project.id, is_active=True).all()
     available_brands = db.session.query(Brand).join(Product).filter(Product.project_id == project.id, Product.is_active == True).distinct().order_by(Brand.name).all()
+    
+    # Pobieramy dostępne statusy dostępności
+    available_statuses = db.session.query(Product.availability).filter(Product.project_id == project.id, Product.is_active == True).distinct().order_by(Product.availability).all()
+    available_statuses = [s[0] for s in available_statuses if s[0]]
 
     stats = {
         'total_products': len(all_active_products),
@@ -505,7 +553,16 @@ def project_dashboard(project_id):
                            pagination=pagination,
                            stats=stats,
                            available_brands=available_brands,
-                           current_filters={'q': search_query, 'brand': brand_filter, 'filter': filter_type, 'archived': show_archived}
+                           available_statuses=available_statuses,
+                           current_filters={
+                               'q': search_query, 
+                               'brand': brand_filter, 
+                               'availability': availability_filter,
+                               'filter': filter_type, 
+                               'archived': show_archived,
+                               'sort': sort_by,
+                               'order': sort_order
+                           }
                            )
 
 
