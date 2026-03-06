@@ -58,8 +58,8 @@ def get_current_price(url):
     }
 
     # --- TEST IP: PRZED PROXY ---
-    real_ip = check_my_ip(proxies=None)
-    print(f"\n[TEST] 1. Prawdziwe IP serwera: {real_ip}")
+    # real_ip = check_my_ip(proxies=None)
+    # print(f"\n[TEST] 1. Prawdziwe IP serwera: {real_ip}")
 
     # NOWOŚĆ: Konfiguracja Proxy
     proxies = None
@@ -76,9 +76,9 @@ def get_current_price(url):
         }
 
         # --- TEST IP: PO PROXY ---
-        proxy_ip = check_my_ip(proxies=proxies)
-        print(f"[TEST] 2. Skanuje przez serwer: {current_server}")
-        print(f"[TEST] 3. Sklep widzi IP: {proxy_ip}")
+        # proxy_ip = check_my_ip(proxies=proxies)
+        # print(f"[TEST] 2. Skanuje przez serwer: {current_server}")
+        # print(f"[TEST] 3. Sklep widzi IP: {proxy_ip}")
     else:
         print("[TEST] Brak danych NordVPN w .env. Lecę na czysto.")
 
