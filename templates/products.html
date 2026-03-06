@@ -34,11 +34,18 @@
                 </div>
                 <div>
                     {% if project.product_feed_url %}
-                        <form method="POST" action="{{ url_for('sync_products', project_id=project.id) }}" style="display: inline;">
-                            <button type="submit" class="btn btn-outline-success me-2" title="Pobierz produkty z pliku XML">
-                                <i class="bi bi-arrow-repeat"></i> Synchronizuj
-                            </button>
-                        </form>
+                        <div class="d-inline-block text-center me-2">
+                            <form method="POST" action="{{ url_for('sync_products', project_id=project.id) }}" style="display: inline;">
+                                <button type="submit" class="btn btn-outline-success" title="Pobierz produkty z pliku XML">
+                                    <i class="bi bi-arrow-repeat"></i> Synchronizuj
+                                </button>
+                            </form>
+                            {% if project.last_feed_sync %}
+                                <div class="text-muted small mt-1" style="font-size: 0.7rem;">
+                                    Ostatnia: {{ project.last_feed_sync.strftime('%Y-%m-%d %H:%M') }}
+                                </div>
+                            {% endif %}
+                        </div>
                     {% endif %}
                     <button class="btn btn-outline-secondary me-2">Zarządzaj</button>
                     <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addProductModal">

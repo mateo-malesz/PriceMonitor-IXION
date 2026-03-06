@@ -7,7 +7,12 @@ from flask_mail import Mail, Message
 from flask import make_response
 import xml.etree.ElementTree as ET
 from flask_apscheduler import APScheduler
-from datetime import datetime, date, timezone
+from datetime import datetime, date
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:
+    from backports.zoneinfo import ZoneInfo # Dla starszych wersji Pythona
+
 from scraper import get_current_price
 from flask_admin import Admin, AdminIndexView, expose
 from flask_admin.contrib.sqla import ModelView
@@ -22,6 +27,12 @@ from sqlalchemy import func, case
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# --- KONFIGURACJA STREFY CZASOWEJ ---
+TIMEZONE = ZoneInfo("Europe/Warsaw")
+
+def get_current_time():
+    return datetime.now(TIMEZONE)
 
 # --- KONFIGURACJA LOGOWANIA ---
 # Ustawiamy RotatingFileHandler: max 1MB na plik, trzymamy 5 ostatnich plików
@@ -134,6 +145,7 @@ class Project(db.Model):
     name = db.Column(db.String(100), nullable=False)
     domain = db.Column(db.String(100))
     product_feed_url = db.Column(db.String(500), nullable=True)
+    last_feed_sync = db.Column(db.DateTime, nullable=True)
     products = db.relationship('Product', backref='project', lazy=True, cascade="all, delete")
 
 # --- MARKA ---
@@ -193,7 +205,7 @@ class PriceHistory(db.Model):
     mapping_id = db.Column(db.Integer, db.ForeignKey('product_mapping.id'), nullable=False)
     price = db.Column(db.Float, nullable=False)
     availability = db.Column(db.Boolean, default=True)
-    scraped_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    scraped_at = db.Column(db.DateTime, default=get_current_time)
 
 # --- ZADANIE ---
 class ScheduledTask(db.Model):
@@ -354,6 +366,11 @@ def import_products_from_xml(url, project_id):
             if sku not in imported_skus and product.is_active:
                 product.is_active = False
                 stats['archived'] += 1
+        
+        # Aktualizacja daty ostatniej synchronizacji
+        project = Project.query.get(project_id)
+        if project:
+            project.last_feed_sync = get_current_time()
                 
         db.session.commit()
         logger.info(f"Import zakończony. Statystyki: {stats}")
