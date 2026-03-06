@@ -32,22 +32,22 @@
                     <h2 class="fw-bold">Produkty</h2>
                     <p class="text-muted">Znaleziono {{ pagination.total }} produtków</p>
                 </div>
-                <div>
+                <div class="d-flex align-items-start gap-2">
                     {% if project.product_feed_url %}
-                        <div class="d-inline-block text-center me-2">
-                            <form method="POST" action="{{ url_for('sync_products', project_id=project.id) }}" style="display: inline;">
+                        <div class="d-flex flex-column align-items-center">
+                            <form method="POST" action="{{ url_for('sync_products', project_id=project.id) }}" class="m-0">
                                 <button type="submit" class="btn btn-outline-success" title="Pobierz produkty z pliku XML">
                                     <i class="bi bi-arrow-repeat"></i> Synchronizuj
                                 </button>
                             </form>
                             {% if project.last_feed_sync %}
-                                <div class="text-muted small mt-1" style="font-size: 0.7rem;">
+                                <div class="text-muted mt-1 text-nowrap" style="font-size: 0.65rem;">
                                     Ostatnia: {{ project.last_feed_sync.strftime('%Y-%m-%d %H:%M') }}
                                 </div>
                             {% endif %}
                         </div>
                     {% endif %}
-                    <button class="btn btn-outline-secondary me-2">Zarządzaj</button>
+                    <button class="btn btn-outline-secondary">Zarządzaj</button>
                     <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addProductModal">
                         <i class="bi bi-plus-lg"></i> Dodaj Produkt
                     </button>
