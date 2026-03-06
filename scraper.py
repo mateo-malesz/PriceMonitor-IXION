@@ -4,6 +4,7 @@ import time
 import random
 import json
 import re
+import os
 
 # Lista User-Agentów do rotacji
 USER_AGENTS = [
@@ -19,6 +20,32 @@ USER_AGENTS = [
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36 Edg/121.0.0.0'
 ]
 
+def check_my_ip(proxies=None):
+    """Zwraca publiczne IP, z proxy lub bez."""
+    try:
+        # Zmiana 1: Używamy zwykłego http zamiast https dla testu (omija błędy handshake SSL proxy)
+        # Zmiana 2: Dodajemy chociaż podstawowy nagłówek, żeby nie wyglądać jak automat
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+        response = requests.get('http://api.ipify.org', headers=headers, proxies=proxies, timeout=10)
+        return response.text
+    except Exception as e:
+        return f"Błąd ({e})"
+
+NORD_SERVERS = [
+    'nl.socks.nordhold.net:1080',
+    'se.socks.nordhold.net:1080',
+    'us.socks.nordhold.net:1080',
+    'amsterdam.nl.socks.nordhold.net:1080',
+    'atlanta.us.socks.nordhold.net:1080',
+    'chicago.us.socks.nordhold.net:1080',
+    'dallas.us.socks.nordhold.net:1080',
+    'los-angeles.us.socks.nordhold.net:1080',
+    'new-york.us.socks.nordhold.net:1080',
+    'phoenix.us.socks.nordhold.net:1080',
+    'san-francisco.us.socks.nordhold.net:1080',
+    'stockholm.se.socks.nordhold.net:1080'
+]
+
 def get_current_price(url):
     current_user_agent = random.choice(USER_AGENTS)
 
@@ -30,9 +57,34 @@ def get_current_price(url):
         'DNT': '1'
     }
 
+    # --- TEST IP: PRZED PROXY ---
+    real_ip = check_my_ip(proxies=None)
+    print(f"\n[TEST] 1. Prawdziwe IP serwera: {real_ip}")
+
+    # NOWOŚĆ: Konfiguracja Proxy
+    proxies = None
+    nord_user = os.environ.get('NORD_USER')
+    nord_pass = os.environ.get('NORD_PASS')
+
+    if nord_user and nord_pass:
+        current_server = random.choice(NORD_SERVERS)
+        # UWAGA: Zmieniamy z http:// na socks5h://
+        proxy_url = f"socks5h://{nord_user}:{nord_pass}@{current_server}"
+        proxies = {
+            "http": proxy_url,
+            "https": proxy_url
+        }
+
+        # --- TEST IP: PO PROXY ---
+        proxy_ip = check_my_ip(proxies=proxies)
+        print(f"[TEST] 2. Skanuje przez serwer: {current_server}")
+        print(f"[TEST] 3. Sklep widzi IP: {proxy_ip}")
+    else:
+        print("[TEST] Brak danych NordVPN w .env. Lecę na czysto.")
+
     try:
         time.sleep(random.uniform(0.5, 1.5))
-        response = requests.get(url, headers=headers, timeout=10)
+        response = requests.get(url, headers=headers, proxies=proxies, timeout=15)
 
         if response.status_code != 200:
             print(f"Błąd połączenia: {response.status_code}")
