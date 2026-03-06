@@ -817,7 +817,12 @@ def product_details(project_id, product_id):
     price_datasets = []
     avail_datasets = []
 
-    sorted_mappings = sorted(product.mappings, key=lambda m: (m.url != product.my_url, m.shop.name))
+    # --- ZMIANA SORTOWANIA: Najpierw własny sklep, potem cena rosnąco, potem nazwa sklepu ---
+    sorted_mappings = sorted(product.mappings, key=lambda m: (
+        m.url != product.my_url,  # 1. Własny sklep (False < True)
+        m.last_price if m.last_price else float('inf'), # 2. Cena rosnąco (brak ceny na końcu)
+        m.shop.name # 3. Nazwa sklepu
+    ))
 
     for mapping in sorted_mappings:
         if mapping.history:
@@ -870,7 +875,7 @@ def product_details(project_id, product_id):
             })
 
     visible_mappings = []
-    for m in product.mappings:
+    for m in sorted_mappings: # Używamy posortowanej listy również do wyświetlania tabeli
         is_my_link = False
         if product.my_url and (m.url.strip() == product.my_url.strip()):
             is_my_link = True
@@ -1301,93 +1306,8 @@ def run_scheduled_scans():
                             history = PriceHistory(mapping_id=mapping.id, price=new_price, availability=is_avail)
                             db.session.add(history)
                         else:
-
                             result_entry['status'] = 'error'
                             result_entry['msg'] = 'Nie znaleziono ceny'
-
-                        if new_price:
-                            logger.info(f"Sukces: {new_price} PLN")
-                        else:
-                            logger.warning(f"Błąd: Nie znaleziono ceny")
-
-                        scan_results.append(result_entry)
-
-            logger.info("Zapisuję wyniki do bazy danych...")
-            task.last_run_date = today_date
-            db.session.commit()
-
-            if scan_results:
-                try:
-                    logger.info(f"Generuję raport i wysyłam maila ({len(scan_results)} produktów)...")
-                    send_enhanced_report(task_name, scan_results)
-                    logger.info(f"[SCHEDULER] Zadanie wykonane. Raport wysłany!")
-                except Exception as e:
-                    logger.error(f"[SCHEDULER ERROR] Zadanie wykonane, ale błąd wysyłki: {e}", exc_info=True)
-
-# --- RĘCZNE WYMUSZENIE SKANOWANIA ---
-@app.route('/project/<int:project_id>/scheduler/force-run', methods=['POST'])
-@login_required
-def force_run_scheduler(project_id):
-    project = Project.query.get_or_404(project_id)
-    if current_user not in project.users:
-        return redirect(url_for('projects'))
-
-    tasks = ScheduledTask.query.filter_by(project_id=project.id, is_active=True).all()
-
-    if not tasks:
-        flash('Brak aktywnych zadań.', category='warning')
-        return redirect(url_for('project_scheduler', project_id=project.id))
-
-    logger.info(f"--- [FORCE RUN] Start {len(tasks)} zadań ---")
-    total_scanned = 0
-
-    for task in tasks:
-        task_label = f"Raport: Marka {task.brand.name}" if task.brand else "Raport: Cały Projekt"
-        task_name = f"{task_label} (Wymuszony)"
-
-        scan_results = []
-        query = Product.query.filter_by(project_id=task.project_id)
-        if task.brand_id:
-            query = query.filter_by(brand_id=task.brand_id)
-        products = query.all()
-
-        for product in products:
-            for mapping in product.mappings:
-                if mapping.is_active:
-                    old_price = mapping.last_price
-
-                    try:
-                        result = get_current_price(mapping.url)
-                        if result and isinstance(result, tuple):
-                            new_price, is_avail = result
-                        else:
-                            new_price = None
-                            is_avail = False
-                    except Exception as e:
-                        logger.warning(f"Error scanning {mapping.url}: {e}")
-                        new_price = None
-                        is_avail = False
-
-                    result_entry = {
-                        'product': product.title, 'sku': product.sku,
-                        'shop': mapping.shop.name, 'url': mapping.url,
-                        'old_price': old_price, 'new_price': new_price,
-                        'status': 'ok', 'msg': 'OK'
-                    }
-
-                    if new_price is not None:
-                        if old_price != new_price:
-                            result_entry['status'] = 'change'
-
-                        mapping.last_price = new_price
-                        mapping.is_available = is_avail
-                        mapping.last_checked_at = datetime.now()
-
-                        history = PriceHistory(mapping_id=mapping.id, price=new_price, availability=is_avail)
-                        db.session.add(history)
-                    else:
-                        result_entry['status'] = 'error'
-                        result_entry['msg'] = 'Nie znaleziono ceny'
 
                     scan_results.append(result_entry)
                     total_scanned += 1
