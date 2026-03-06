@@ -956,6 +956,13 @@ def refresh_prices(project_id, product_id):
                     db.session.add(history)
                     updated_count += 1
                     logger.info(f"    -> Sukces: {new_price} PLN (Dostępny: {is_avail})")
+                    
+                    # --- AKTUALIZACJA CENY WŁASNEJ ---
+                    # Jeśli to jest link do mojego sklepu, aktualizujemy też główną cenę produktu
+                    if product.my_url and mapping.url.strip() == product.my_url.strip():
+                        product.my_price = new_price
+                        logger.info(f"    -> Zaktualizowano cenę własną produktu na: {new_price} PLN")
+
                 else:
                     logger.warning("    -> Brak ceny (strona nie zwróciła wyniku)")
 
@@ -1299,6 +1306,11 @@ def run_scheduled_scans():
 
                             history = PriceHistory(mapping_id=mapping.id, price=new_price, availability=is_avail)
                             db.session.add(history)
+                            
+                            # --- AKTUALIZACJA CENY WŁASNEJ ---
+                            if product.my_url and mapping.url.strip() == product.my_url.strip():
+                                product.my_price = new_price
+                                logger.info(f"    -> Zaktualizowano cenę własną produktu na: {new_price} PLN")
                         else:
 
                             result_entry['status'] = 'error'
@@ -1384,6 +1396,11 @@ def force_run_scheduler(project_id):
 
                         history = PriceHistory(mapping_id=mapping.id, price=new_price, availability=is_avail)
                         db.session.add(history)
+                        
+                        # --- AKTUALIZACJA CENY WŁASNEJ ---
+                        if product.my_url and mapping.url.strip() == product.my_url.strip():
+                            product.my_price = new_price
+                            logger.info(f"    -> Zaktualizowano cenę własną produktu na: {new_price} PLN")
                     else:
                         result_entry['status'] = 'error'
                         result_entry['msg'] = 'Nie znaleziono ceny'
@@ -1455,6 +1472,11 @@ def run_single_task(project_id, task_id):
 
                     history = PriceHistory(mapping_id=mapping.id, price=new_price, availability=is_avail)
                     db.session.add(history)
+                    
+                    # --- AKTUALIZACJA CENY WŁASNEJ ---
+                    if product.my_url and mapping.url.strip() == product.my_url.strip():
+                        product.my_price = new_price
+                        logger.info(f"    -> Zaktualizowano cenę własną produktu na: {new_price} PLN")
                 else:
                     result_entry['status'] = 'error'
                     result_entry['msg'] = 'Nie znaleziono ceny'
