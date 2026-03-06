@@ -7,7 +7,7 @@ from flask_mail import Mail, Message
 from flask import make_response
 import xml.etree.ElementTree as ET
 from flask_apscheduler import APScheduler
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 try:
     from zoneinfo import ZoneInfo
 except ImportError:
@@ -644,6 +644,142 @@ def sync_products(project_id):
         flash('Wystąpił błąd krytyczny podczas synchronizacji.', category='error')
 
     return redirect(url_for('project_dashboard', project_id=project.id))
+
+# --- IMPORT LINKÓW KONKURENCJI ---
+@app.route('/project/<int:project_id>/import-links', methods=['GET', 'POST'])
+@login_required
+def import_links(project_id):
+    project = Project.query.get_or_404(project_id)
+    if current_user not in project.users:
+        flash('Brak dostępu.', category='error')
+        return redirect(url_for('projects'))
+
+    if request.method == 'POST':
+        if 'file' not in request.files:
+            flash('Nie wybrano pliku.', category='error')
+            return redirect(request.url)
+        
+        file = request.files['file']
+        if file.filename == '':
+            flash('Nie wybrano pliku.', category='error')
+            return redirect(request.url)
+
+        if file:
+            try:
+                # Odczytujemy plik w pamięci jako bajty
+                file_bytes = file.stream.read()
+                
+                # Próbujemy zdekodować różnymi kodowaniami
+                decoded_file = None
+                encodings = ['utf-8', 'windows-1250', 'latin-1']
+                
+                for encoding in encodings:
+                    try:
+                        decoded_file = file_bytes.decode(encoding)
+                        break
+                    except UnicodeDecodeError:
+                        continue
+                
+                if decoded_file is None:
+                    flash('Nie udało się rozpoznać kodowania pliku. Upewnij się, że to poprawny plik CSV.', category='error')
+                    return redirect(request.url)
+
+                stream = io.StringIO(decoded_file, newline=None)
+                
+                # Próbujemy wykryć dialekt (separator)
+                try:
+                    dialect = csv.Sniffer().sniff(stream.read(1024))
+                    stream.seek(0)
+                except csv.Error:
+                    # Domyślny fallback, jeśli sniffer zawiedzie
+                    dialect = csv.excel
+                    dialect.delimiter = ';' # Zakładamy średnik jako domyślny w PL
+                    stream.seek(0)
+
+                csv_reader = csv.reader(stream, dialect)
+                
+                # Pomijamy nagłówek
+                try:
+                    next(csv_reader)
+                except StopIteration:
+                    flash('Plik jest pusty.', category='error')
+                    return redirect(request.url)
+
+                added_links = 0
+                skipped_duplicates = 0
+                products_not_found = 0
+                
+                # Cache dla sklepów, żeby nie pytać bazy za każdym razem
+                shops_cache = {shop.domain: shop for shop in Shop.query.all()}
+
+                for row in csv_reader:
+                    if len(row) < 2: continue # Za mało kolumn
+
+                    # Kolumna B: SKU / Identyfikator
+                    sku = row[1].strip()
+                    if not sku: continue
+
+                    product = Product.query.filter_by(project_id=project.id, sku=sku).first()
+                    
+                    if not product:
+                        products_not_found += 1
+                        continue
+
+                    # Linki konkurencji zaczynają się od kolumny G (indeks 6)
+                    competitor_links = row[6:]
+                    
+                    for link in competitor_links:
+                        link = link.strip()
+                        if not link: continue
+
+                        # Sprawdzamy duplikaty
+                        exists = ProductMapping.query.filter_by(product_id=product.id, url=link).first()
+                        if exists:
+                            skipped_duplicates += 1
+                            continue
+
+                        # Wyciągamy domenę
+                        try:
+                            parsed_uri = urlparse(link)
+                            domain = parsed_uri.netloc.replace('www.', '')
+                            if not domain: continue
+                        except:
+                            continue
+
+                        # Szukamy lub tworzymy sklep
+                        shop = shops_cache.get(domain)
+                        if not shop:
+                            shop = Shop(name=domain.capitalize(), domain=domain)
+                            db.session.add(shop)
+                            db.session.flush() # Żeby dostać ID
+                            shops_cache[domain] = shop
+
+                        # Dodajemy mapping
+                        new_mapping = ProductMapping(
+                            product_id=product.id,
+                            shop_id=shop.id,
+                            url=link,
+                            is_active=True
+                        )
+                        db.session.add(new_mapping)
+                        added_links += 1
+
+                db.session.commit()
+                
+                msg = f"Import zakończony. Dodano {added_links} linków."
+                if skipped_duplicates > 0:
+                    msg += f" Pominięto {skipped_duplicates} duplikatów."
+                if products_not_found > 0:
+                    msg += f" Nie znaleziono {products_not_found} produktów po SKU."
+                
+                flash(msg, category='success')
+                return redirect(url_for('project_dashboard', project_id=project.id))
+
+            except Exception as e:
+                logger.error(f"CSV Import Error: {e}", exc_info=True)
+                flash(f'Wystąpił błąd podczas przetwarzania pliku: {e}', category='error')
+
+    return render_template('import_links.html', project=project)
 
 # --- WIDOK SZCZEGÓŁÓW PRODUKTU ---
 @app.route('/project/<int:project_id>/product/<int:product_id>')
