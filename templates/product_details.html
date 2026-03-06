@@ -109,9 +109,15 @@
             </thead>
             <tbody>
                 {% for mapping in mappings %}
-                <tr>
+                {% set is_my_store = (product.my_url and mapping.url == product.my_url) %}
+                <tr {% if is_my_store %}class="table-success fw-bold"{% endif %}>
                     <td class="ps-4">
-                        <div class="fw-bold">{{ mapping.shop.name }}</div>
+                        <div class="fw-bold">
+                            {{ mapping.shop.name }}
+                            {% if is_my_store %}
+                                <span class="badge bg-success ms-2" style="font-size: 0.6rem;">TWÓJ SKLEP</span>
+                            {% endif %}
+                        </div>
                         <a href="{{ mapping.url }}" target="_blank" class="small text-muted text-decoration-none d-inline-block text-truncate" style="max-width: 200px;">
                             {{ mapping.url }} <i class="bi bi-box-arrow-up-right"></i>
                         </a>
@@ -127,7 +133,9 @@
 
                     {% set diff_val = (mapping.last_price - product.my_price) if (mapping.last_price and product.my_price) else 0 %}
                     <td data-val="{{ diff_val }}">
-                        {% if mapping.last_price and product.my_price %}
+                        {% if is_my_store %}
+                            <span class="text-muted small">-</span>
+                        {% elif mapping.last_price and product.my_price %}
                             {% set diff = mapping.last_price - product.my_price %}
                             {% set perc = (diff / product.my_price) * 100 %}
 
@@ -174,6 +182,7 @@
                     </td>
 
                     <td class="text-end pe-4">
+                        {% if not is_my_store %}
                         <form method="POST"
                               action="{{ url_for('delete_mapping', project_id=project.id, mapping_id=mapping.id) }}"
                               style="display: inline;"
@@ -182,6 +191,7 @@
                                 <i class="bi bi-trash"></i>
                             </button>
                         </form>
+                        {% endif %}
                     </td>
                 </tr>
                 {% else %}
