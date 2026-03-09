@@ -958,7 +958,6 @@ def refresh_prices(project_id, product_id):
                     logger.info(f"    -> Sukces: {new_price} PLN (Dostępny: {is_avail})")
                     
                     # --- AKTUALIZACJA CENY WŁASNEJ ---
-                    # Jeśli to jest link do mojego sklepu, aktualizujemy też główną cenę produktu
                     if product.my_url and mapping.url.strip() == product.my_url.strip():
                         product.my_price = new_price
                         logger.info(f"    -> Zaktualizowano cenę własną produktu na: {new_price} PLN")
@@ -1176,15 +1175,25 @@ def send_enhanced_report(task_name, scan_results):
         """
 
         for item in changes:
-            price_color = "#198754" if item['new_price'] < item['old_price'] else "#dc3545"
-            arrow = "▼" if item['new_price'] < item['old_price'] else "▲"
+            price_color = "#198754"
+            arrow = "▼"
+            
+            # Zabezpieczenie przed porównaniem z None
+            if item.get('old_price') is not None and item.get('new_price') is not None:
+                if item['new_price'] > item['old_price']:
+                    price_color = "#dc3545"
+                    arrow = "▲"
+            else:
+                # Jeśli nie ma starej ceny, traktujemy to jako nową cenę (zielony)
+                price_color = "#198754"
+                arrow = ""
 
             html_body += f"""
             <tr style="border-bottom: 1px solid #eee;">
                 <td style="padding: 8px;"><b>{item['product']}</b><br><span style="color:#777; font-size:11px;">{item['sku']}</span></td>
                 <td style="padding: 8px;">{item['shop']}</td>
                 <td style="padding: 8px; font-weight: bold; color: {price_color};">
-                    {item['old_price']} &rarr; {item['new_price']} PLN {arrow}
+                    {item['old_price'] if item['old_price'] else '-'} &rarr; {item['new_price']} PLN {arrow}
                 </td>
             </tr>
             """
@@ -1312,7 +1321,6 @@ def run_scheduled_scans():
                                 product.my_price = new_price
                                 logger.info(f"    -> Zaktualizowano cenę własną produktu na: {new_price} PLN")
                         else:
-
                             result_entry['status'] = 'error'
                             result_entry['msg'] = 'Nie znaleziono ceny'
 
@@ -1336,9 +1344,9 @@ def run_scheduled_scans():
                     logger.error(f"[SCHEDULER ERROR] Zadanie wykonane, ale błąd wysyłki: {e}", exc_info=True)
 
 # --- RĘCZNE WYMUSZENIE SKANOWANIA ---
-@app.route('/project/<int:project_id>/scheduler/force-run', methods=['POST'])
+@app.route('/project/<int:project_id>/scheduler/run-all', methods=['POST'])
 @login_required
-def force_run_scheduler(project_id):
+def run_all_tasks(project_id):
     project = Project.query.get_or_404(project_id)
     if current_user not in project.users:
         return redirect(url_for('projects'))

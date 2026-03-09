@@ -75,7 +75,7 @@
                             <h5 class="card-title fw-bold mb-0">Aktywne Zadania</h5>
 
                             {% if tasks %}
-                                <form method="POST" action="{{ url_for('force_run_scheduler', project_id=project.id) }}">
+                                <form method="POST" action="{{ url_for('run_all_tasks', project_id=project.id) }}">
                                     <button type="submit" class="btn btn-warning text-dark fw-bold btn-sm">
                                         <i class="bi bi-play-circle-fill me-2"></i>Wymuś wszystkie
                                     </button>
