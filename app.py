@@ -8,10 +8,11 @@ from flask import make_response
 import xml.etree.ElementTree as ET
 from flask_apscheduler import APScheduler
 from datetime import datetime, date, timezone
+
 try:
     from zoneinfo import ZoneInfo
 except ImportError:
-    from backports.zoneinfo import ZoneInfo # Dla starszych wersji Pythona
+    from backports.zoneinfo import ZoneInfo  # Dla starszych wersji Pythona
 
 from scraper import get_current_price
 from flask_admin import Admin, AdminIndexView, expose
@@ -31,8 +32,10 @@ load_dotenv()
 # --- KONFIGURACJA STREFY CZASOWEJ ---
 TIMEZONE = ZoneInfo("Europe/Warsaw")
 
+
 def get_current_time():
     return datetime.now(TIMEZONE)
+
 
 # --- KONFIGURACJA LOGOWANIA ---
 # Ustawiamy RotatingFileHandler: max 1MB na plik, trzymamy 5 ostatnich plików
@@ -60,9 +63,11 @@ app.config['MAIL_RECIPIENT'] = os.getenv('MAIL_RECIPIENT')
 
 mail = Mail(app)
 
+
 # --- KONFIGURACJA HARMONOGRAMU ---
 class Config:
     SCHEDULER_API_ENABLED = True
+
 
 app.config.from_object(Config())
 
@@ -84,22 +89,26 @@ login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
 
+
 # --- FLASK-ADMIN ---
 class MyModelView(ModelView):
     def is_accessible(self):
         admin_email = os.getenv('ADMIN_EMAIL')
         return current_user.is_authenticated and admin_email and current_user.email == admin_email
+
     def inaccessible_callback(self, name, **kwargs):
         if not current_user.is_authenticated:
             return redirect(url_for('login'))
         flash('Brak uprawnień administratora.', category='error')
         return redirect(url_for('home'))
 
+
 class UserModelView(MyModelView):
     def on_model_change(self, form, model, is_created):
         if form.password.data:
             model.password = generate_password_hash(form.password.data, method='pbkdf2:sha256')
         return super(UserModelView, self).on_model_change(form, model, is_created)
+
 
 class MyAdminIndexView(AdminIndexView):
     def is_accessible(self):
@@ -122,6 +131,7 @@ class MyAdminIndexView(AdminIndexView):
                            project_count=project_count,
                            product_count=product_count)
 
+
 admin = Admin(app, name='Panel Administratora', index_view=MyAdminIndexView())
 
 # --- MODELE BAZY DANYCH ---
@@ -129,6 +139,7 @@ project_users = db.Table('project_users',
                          db.Column('user_id', db.Integer, db.ForeignKey('user.id'), primary_key=True),
                          db.Column('project_id', db.Integer, db.ForeignKey('project.id'), primary_key=True)
                          )
+
 
 # --- USER ---
 class User(UserMixin, db.Model):
@@ -139,6 +150,7 @@ class User(UserMixin, db.Model):
                            default='https://ui-avatars.com/api/?name=User&background=0d6efd&color=fff')
     projects = db.relationship('Project', secondary=project_users, backref=db.backref('users', lazy='dynamic'))
 
+
 # --- PROJEKT ---
 class Project(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -148,11 +160,13 @@ class Project(db.Model):
     last_feed_sync = db.Column(db.DateTime, nullable=True)
     products = db.relationship('Product', backref='project', lazy=True, cascade="all, delete")
 
+
 # --- MARKA ---
 class Brand(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
     products = db.relationship('Product', backref='brand', lazy=True)
+
 
 # --- SKLEP ---
 class Shop(db.Model):
@@ -160,6 +174,7 @@ class Shop(db.Model):
     name = db.Column(db.String(100), nullable=False)
     domain = db.Column(db.String(100), nullable=False)
     mappings = db.relationship('ProductMapping', backref='shop', lazy=True)
+
 
 # --- PRODUKT ---
 class Product(db.Model):
@@ -187,6 +202,7 @@ class Product(db.Model):
                 count += 1
         return count
 
+
 # --- MAPPING ---
 class ProductMapping(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -199,6 +215,7 @@ class ProductMapping(db.Model):
     history = db.relationship('PriceHistory', backref='mapping', lazy=True, cascade="all, delete")
     is_available = db.Column(db.Boolean, default=True)
 
+
 # --- HISTORIA CEN ---
 class PriceHistory(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -206,6 +223,7 @@ class PriceHistory(db.Model):
     price = db.Column(db.Float, nullable=False)
     availability = db.Column(db.Boolean, default=True)
     scraped_at = db.Column(db.DateTime, default=get_current_time)
+
 
 # --- ZADANIE ---
 class ScheduledTask(db.Model):
@@ -220,15 +238,18 @@ class ScheduledTask(db.Model):
     project = db.relationship('Project', backref=db.backref('tasks', cascade="all, delete-orphan"))
     brand = db.relationship('Brand')
 
+
 @login_manager.user_loader
 def load_user(user_id):
     return db.session.get(User, int(user_id))
+
 
 # --- ROUTING I LOGIKA ---
 @app.route('/')
 @login_required
 def home():
     return redirect(url_for('projects'))
+
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -245,16 +266,19 @@ def login():
             flash('Błędny email lub hasło.', category='error')
     return render_template('login.html')
 
+
 @app.route('/logout')
 @login_required
 def logout():
     logout_user()
     return redirect(url_for('login'))
 
+
 # --- OBSŁUGA BŁĘDÓW ---
 @app.errorhandler(404)
 def page_not_found(e):
     return render_template('404.html'), 404
+
 
 # --- FUNKCJE IMPORTU ---
 def import_products_from_xml(url, project_id):
@@ -270,11 +294,11 @@ def import_products_from_xml(url, project_id):
 
         root = ET.fromstring(response.content)
         ns = {'g': 'http://base.google.com/ns/1.0'}
-        
+
         # Pobieramy wszystkie aktywne produkty z bazy dla tego projektu
         existing_products = {p.sku: p for p in Product.query.filter_by(project_id=project_id).all()}
         imported_skus = set()
-        
+
         items = root.findall('.//item')
         if not items:
             items = root.findall('.//{http://www.w3.org/2005/Atom}entry')
@@ -330,7 +354,7 @@ def import_products_from_xml(url, project_id):
 
             if sku_val:
                 imported_skus.add(sku_val)
-                
+
                 if sku_val in existing_products:
                     # Aktualizacja istniejącego produktu
                     product = existing_products[sku_val]
@@ -338,11 +362,11 @@ def import_products_from_xml(url, project_id):
                         product.my_price = price_val
                     if not product.brand_id and brand_obj:
                         product.brand_id = brand_obj.id
-                    
+
                     # Upewniamy się, że produkt jest aktywny (jeśli wrócił z archiwum)
                     if not product.is_active:
                         product.is_active = True
-                        
+
                     stats['updated'] += 1
                 else:
                     # Dodanie nowego produktu
@@ -360,18 +384,18 @@ def import_products_from_xml(url, project_id):
                     )
                     db.session.add(new_product)
                     stats['added'] += 1
-        
+
         # Archiwizacja produktów, których nie ma w pliku
         for sku, product in existing_products.items():
             if sku not in imported_skus and product.is_active:
                 product.is_active = False
                 stats['archived'] += 1
-        
+
         # Aktualizacja daty ostatniej synchronizacji
         project = Project.query.get(project_id)
         if project:
             project.last_feed_sync = get_current_time()
-                
+
         db.session.commit()
         logger.info(f"Import zakończony. Statystyki: {stats}")
         return stats
@@ -380,12 +404,14 @@ def import_products_from_xml(url, project_id):
         stats['error'] = str(e)
         return stats
 
+
 # --- ROUTING PROJEKTÓW ---
 @app.route('/projects')
 @login_required
 def projects():
     user_projects = current_user.projects
     return render_template('project_list.html', projects=user_projects)
+
 
 @app.route('/project/new', methods=['GET', 'POST'])
 @login_required
@@ -405,12 +431,13 @@ def create_project():
 
             db.session.add(new_project)
             db.session.commit()
-            
+
             if import_method == 'url' and feed_url:
                 flash('Rozpoczynam import produktów w tle... To może chwilę potrwać.', category='info')
                 result = import_products_from_xml(feed_url, new_project.id)
                 if not result['error']:
-                    flash(f"Sukces! Dodano: {result['added']}, Zaktualizowano: {result['updated']}.", category='success')
+                    flash(f"Sukces! Dodano: {result['added']}, Zaktualizowano: {result['updated']}.",
+                          category='success')
                 else:
                     flash(f"Błąd importu: {result['error']}", category='warning')
 
@@ -420,6 +447,7 @@ def create_project():
             return redirect(url_for('project_dashboard', project_id=new_project.id))
 
     return render_template('create_project.html')
+
 
 # --- USUWANIE PROJEKTU ---
 @app.route('/project/<int:project_id>/delete', methods=['POST'])
@@ -433,6 +461,7 @@ def delete_project(project_id):
     db.session.commit()
     flash(f'Projekt "{project.name}" został usunięty.', category='success')
     return redirect(url_for('projects'))
+
 
 @app.route('/project/<int:project_id>/products')
 @login_required
@@ -448,9 +477,9 @@ def project_dashboard(project_id):
     availability_filter = request.args.get('availability', '')
     filter_type = request.args.get('filter', '')
     show_archived = request.args.get('archived', 'false') == 'true'
-    
-    sort_by = request.args.get('sort', 'title') # domyślnie po tytule
-    sort_order = request.args.get('order', 'asc') # domyślnie rosnąco
+
+    sort_by = request.args.get('sort', 'title')  # domyślnie po tytule
+    sort_order = request.args.get('order', 'asc')  # domyślnie rosnąco
 
     # Budujemy zapytanie
     query = Product.query.filter_by(project_id=project.id)
@@ -478,7 +507,7 @@ def project_dashboard(project_id):
             ProductMapping.is_active == True,
             (ProductMapping.last_price == None) | (ProductMapping.last_price == 0)
         ).distinct()
-        
+
     # Sortowanie
     if sort_by == 'title':
         if sort_order == 'desc':
@@ -504,18 +533,18 @@ def project_dashboard(project_id):
     elif sort_by == 'status':
         # Sortowanie po liczbie konkurentów (competitor_count)
         # Musimy użyć podzapytania lub zliczenia w zapytaniu głównym
-        
+
         # Podzapytanie liczące mappingi, które NIE są linkiem własnym
         stmt = db.session.query(func.count(ProductMapping.id)).filter(
             ProductMapping.product_id == Product.id,
             ProductMapping.url != Product.my_url
         ).scalar_subquery()
-        
+
         if sort_order == 'desc':
             query = query.order_by(stmt.desc())
         else:
             query = query.order_by(stmt.asc())
-    
+
     # Paginacja
     page = request.args.get('page', 1, type=int)
     pagination = query.paginate(page=page, per_page=20, error_out=False)
@@ -523,10 +552,14 @@ def project_dashboard(project_id):
 
     # Statystyki (liczymy tylko dla AKTYWNYCH produktów)
     all_active_products = Product.query.filter_by(project_id=project.id, is_active=True).all()
-    available_brands = db.session.query(Brand).join(Product).filter(Product.project_id == project.id, Product.is_active == True).distinct().order_by(Brand.name).all()
-    
+    available_brands = db.session.query(Brand).join(Product).filter(Product.project_id == project.id,
+                                                                    Product.is_active == True).distinct().order_by(
+        Brand.name).all()
+
     # Pobieramy dostępne statusy dostępności
-    available_statuses = db.session.query(Product.availability).filter(Product.project_id == project.id, Product.is_active == True).distinct().order_by(Product.availability).all()
+    available_statuses = db.session.query(Product.availability).filter(Product.project_id == project.id,
+                                                                       Product.is_active == True).distinct().order_by(
+        Product.availability).all()
     available_statuses = [s[0] for s in available_statuses if s[0]]
 
     stats = {
@@ -572,10 +605,10 @@ def project_dashboard(project_id):
                            available_brands=available_brands,
                            available_statuses=available_statuses,
                            current_filters={
-                               'q': search_query, 
-                               'brand': brand_filter, 
+                               'q': search_query,
+                               'brand': brand_filter,
                                'availability': availability_filter,
-                               'filter': filter_type, 
+                               'filter': filter_type,
                                'archived': show_archived,
                                'sort': sort_by,
                                'order': sort_order
@@ -620,6 +653,7 @@ def add_product(project_id):
 
     return redirect(url_for('project_dashboard', project_id=project_id))
 
+
 @app.route('/project/<int:project_id>/sync', methods=['POST'])
 @login_required
 def sync_products(project_id):
@@ -636,7 +670,9 @@ def sync_products(project_id):
     try:
         result = import_products_from_xml(project.product_feed_url, project.id)
         if not result['error']:
-            flash(f"Synchronizacja zakończona. Dodano: {result['added']}, Zaktualizowano: {result['updated']}, Zarchiwizowano: {result['archived']}.", category='success')
+            flash(
+                f"Synchronizacja zakończona. Dodano: {result['added']}, Zaktualizowano: {result['updated']}, Zarchiwizowano: {result['archived']}.",
+                category='success')
         else:
             flash(f"Wystąpił błąd: {result['error']}", category='error')
     except Exception as e:
@@ -644,6 +680,7 @@ def sync_products(project_id):
         flash('Wystąpił błąd krytyczny podczas synchronizacji.', category='error')
 
     return redirect(url_for('project_dashboard', project_id=project.id))
+
 
 # --- IMPORT LINKÓW KONKURENCJI ---
 @app.route('/project/<int:project_id>/import-links', methods=['GET', 'POST'])
@@ -658,7 +695,7 @@ def import_links(project_id):
         if 'file' not in request.files:
             flash('Nie wybrano pliku.', category='error')
             return redirect(request.url)
-        
+
         file = request.files['file']
         if file.filename == '':
             flash('Nie wybrano pliku.', category='error')
@@ -668,24 +705,25 @@ def import_links(project_id):
             try:
                 # Odczytujemy plik w pamięci jako bajty
                 file_bytes = file.stream.read()
-                
+
                 # Próbujemy zdekodować różnymi kodowaniami
                 decoded_file = None
                 encodings = ['utf-8', 'windows-1250', 'latin-1']
-                
+
                 for encoding in encodings:
                     try:
                         decoded_file = file_bytes.decode(encoding)
                         break
                     except UnicodeDecodeError:
                         continue
-                
+
                 if decoded_file is None:
-                    flash('Nie udało się rozpoznać kodowania pliku. Upewnij się, że to poprawny plik CSV.', category='error')
+                    flash('Nie udało się rozpoznać kodowania pliku. Upewnij się, że to poprawny plik CSV.',
+                          category='error')
                     return redirect(request.url)
 
                 stream = io.StringIO(decoded_file, newline=None)
-                
+
                 # Próbujemy wykryć dialekt (separator)
                 try:
                     dialect = csv.Sniffer().sniff(stream.read(1024))
@@ -693,11 +731,11 @@ def import_links(project_id):
                 except csv.Error:
                     # Domyślny fallback, jeśli sniffer zawiedzie
                     dialect = csv.excel
-                    dialect.delimiter = ';' # Zakładamy średnik jako domyślny w PL
+                    dialect.delimiter = ';'  # Zakładamy średnik jako domyślny w PL
                     stream.seek(0)
 
                 csv_reader = csv.reader(stream, dialect)
-                
+
                 # Pomijamy nagłówek
                 try:
                     next(csv_reader)
@@ -708,26 +746,26 @@ def import_links(project_id):
                 added_links = 0
                 skipped_duplicates = 0
                 products_not_found = 0
-                
+
                 # Cache dla sklepów, żeby nie pytać bazy za każdym razem
                 shops_cache = {shop.domain: shop for shop in Shop.query.all()}
 
                 for row in csv_reader:
-                    if len(row) < 2: continue # Za mało kolumn
+                    if len(row) < 2: continue  # Za mało kolumn
 
                     # Kolumna B: SKU / Identyfikator
                     sku = row[1].strip()
                     if not sku: continue
 
                     product = Product.query.filter_by(project_id=project.id, sku=sku).first()
-                    
+
                     if not product:
                         products_not_found += 1
                         continue
 
                     # Linki konkurencji zaczynają się od kolumny G (indeks 6)
                     competitor_links = row[6:]
-                    
+
                     for link in competitor_links:
                         link = link.strip()
                         if not link: continue
@@ -751,7 +789,7 @@ def import_links(project_id):
                         if not shop:
                             shop = Shop(name=domain.capitalize(), domain=domain)
                             db.session.add(shop)
-                            db.session.flush() # Żeby dostać ID
+                            db.session.flush()  # Żeby dostać ID
                             shops_cache[domain] = shop
 
                         # Dodajemy mapping
@@ -765,13 +803,13 @@ def import_links(project_id):
                         added_links += 1
 
                 db.session.commit()
-                
+
                 msg = f"Import zakończony. Dodano {added_links} linków."
                 if skipped_duplicates > 0:
                     msg += f" Pominięto {skipped_duplicates} duplikatów."
                 if products_not_found > 0:
                     msg += f" Nie znaleziono {products_not_found} produktów po SKU."
-                
+
                 flash(msg, category='success')
                 return redirect(url_for('project_dashboard', project_id=project.id))
 
@@ -780,6 +818,7 @@ def import_links(project_id):
                 flash(f'Wystąpił błąd podczas przetwarzania pliku: {e}', category='error')
 
     return render_template('import_links.html', project=project)
+
 
 # --- WIDOK SZCZEGÓŁÓW PRODUKTU ---
 @app.route('/project/<int:project_id>/product/<int:product_id>')
@@ -820,8 +859,8 @@ def product_details(project_id, product_id):
     # --- ZMIANA SORTOWANIA: Cena rosnąco, potem nazwa sklepu ---
     # Usunąłem warunek "m.url != product.my_url", aby Twój sklep też był sortowany po cenie
     sorted_mappings = sorted(product.mappings, key=lambda m: (
-        m.last_price if m.last_price else float('inf'), # 1. Cena rosnąco (brak ceny na końcu)
-        m.shop.name # 2. Nazwa sklepu
+        m.last_price if m.last_price else float('inf'),  # 1. Cena rosnąco (brak ceny na końcu)
+        m.shop.name  # 2. Nazwa sklepu
     ))
 
     for mapping in sorted_mappings:
@@ -836,7 +875,6 @@ def product_details(project_id, product_id):
             is_my_store = False
             if product.my_url and (product.my_url.strip() == mapping.url.strip()):
                 is_my_store = True
-
 
             if is_my_store:
                 color = '#198754'
@@ -876,13 +914,13 @@ def product_details(project_id, product_id):
 
     # --- ZMIANA: Przekazujemy wszystkie mappingi, włącznie z własnym sklepem ---
     # Wcześniej filtrowaliśmy własny sklep, teraz go zostawiamy, aby wyświetlić w tabeli
-    
+
     return render_template('product_details.html',
                            project=project,
                            product=product,
                            chart_data=json.dumps(price_datasets),
                            avail_data=json.dumps(avail_datasets),
-                           mappings=sorted_mappings) # Przekazujemy posortowaną listę
+                           mappings=sorted_mappings)  # Przekazujemy posortowaną listę
 
 
 # --- DODAWANIE LINKU DO ŚLEDZENIA ---
@@ -956,7 +994,7 @@ def refresh_prices(project_id, product_id):
                     db.session.add(history)
                     updated_count += 1
                     logger.info(f"    -> Sukces: {new_price} PLN (Dostępny: {is_avail})")
-                    
+
                     # --- AKTUALIZACJA CENY WŁASNEJ ---
                     if product.my_url and mapping.url.strip() == product.my_url.strip():
                         product.my_price = new_price
@@ -978,6 +1016,7 @@ def refresh_prices(project_id, product_id):
 
     return redirect(url_for('product_details', project_id=project_id, product_id=product_id))
 
+
 @app.route('/project/<int:project_id>/product/<int:product_id>/restore', methods=['POST'])
 @login_required
 def restore_product(project_id, product_id):
@@ -992,6 +1031,7 @@ def restore_product(project_id, product_id):
 
     flash(f'Produkt "{product.title}" został przywrócony.', category='success')
     return redirect(url_for('project_dashboard', project_id=project.id, archived='true'))
+
 
 # --- USUWANIE PRODUKTU ---
 @app.route('/project/<int:project_id>/product/<int:product_id>/delete', methods=['POST'])
@@ -1029,6 +1069,7 @@ def delete_mapping(project_id, mapping_id):
 
     flash('Link do konkurencji usunięty.', category='success')
     return redirect(url_for('product_details', project_id=project_id, product_id=product_id))
+
 
 @app.route('/project/<int:project_id>/schedule/add', methods=['POST'])
 @login_required
@@ -1079,6 +1120,7 @@ def project_scheduler(project_id):
 
     return render_template('scheduler.html', project=project, tasks=tasks, brands=brands)
 
+
 @app.route('/project/<int:project_id>/scheduler/<int:task_id>/delete', methods=['POST'])
 @login_required
 def delete_task(project_id, task_id):
@@ -1092,6 +1134,7 @@ def delete_task(project_id, task_id):
     db.session.commit()
     flash('Zadanie usunięte.', category='success')
     return redirect(url_for('project_scheduler', project_id=project_id))
+
 
 def send_enhanced_report(task_name, scan_results):
     logger.info(f"[MAIL] Rozpoczynam przygotowanie raportu: {task_name}")
@@ -1148,12 +1191,12 @@ def send_enhanced_report(task_name, scan_results):
         <html>
         <body style="font-family: Arial, sans-serif; color: #333;">
             <div style="max-width: 600px; margin: 0 auto; border: 1px solid #ddd; padding: 20px; border-radius: 8px;">
-    
+
                 <div style="text-align: center; margin-bottom: 20px;">
                     <h2 style="margin-top: 10px; color: #000;">Raport Skanowania</h2>
                     <p style="color: #777; font-size: 14px;">{task_name} | {date.today()}</p>
                 </div>
-    
+
                 <div style="display: flex; gap: 10px; margin-bottom: 20px;">
                     <div style="flex: 1; background: #f8f9fa; padding: 10px; text-align: center; border-radius: 5px;">
                         <div style="font-size: 24px; font-weight: bold;">{len(scan_results)}</div>
@@ -1168,7 +1211,7 @@ def send_enhanced_report(task_name, scan_results):
                         <div style="font-size: 12px; color: #dc3545;">Błędy</div>
                     </div>
                 </div>
-    
+
                 {'<h3 style="border-bottom: 2px solid #198754; padding-bottom: 5px;">📉 Wykryte Zmiany Cen</h3>' if changes else ''}
                 {'<table style="width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 20px;">' if changes else ''}
                 {'<tr style="background: #f1f1f1; text-align: left;"><th>Produkt</th><th>Sklep</th><th>Cena</th></tr>' if changes else ''}
@@ -1177,7 +1220,7 @@ def send_enhanced_report(task_name, scan_results):
         for item in changes:
             price_color = "#198754"
             arrow = "▼"
-            
+
             # Zabezpieczenie przed porównaniem z None
             if item.get('old_price') is not None and item.get('new_price') is not None:
                 if item['new_price'] > item['old_price']:
@@ -1239,6 +1282,7 @@ def send_enhanced_report(task_name, scan_results):
             logger.error(f"--- [MAIL ERROR] {e}", exc_info=True)
     except Exception as e:
         logger.critical(f"[MAIL CRITICAL ERROR] Nie udało się wysłać maila: {e}", exc_info=True)
+
 
 @scheduler.task('interval', id='main_scanner_job', seconds=60)
 def run_scheduled_scans():
@@ -1315,7 +1359,7 @@ def run_scheduled_scans():
 
                             history = PriceHistory(mapping_id=mapping.id, price=new_price, availability=is_avail)
                             db.session.add(history)
-                            
+
                             # --- AKTUALIZACJA CENY WŁASNEJ ---
                             if product.my_url and mapping.url.strip() == product.my_url.strip():
                                 product.my_price = new_price
@@ -1342,6 +1386,7 @@ def run_scheduled_scans():
                     logger.info(f"[SCHEDULER] Zadanie wykonane. Raport wysłany!")
                 except Exception as e:
                     logger.error(f"[SCHEDULER ERROR] Zadanie wykonane, ale błąd wysyłki: {e}", exc_info=True)
+
 
 # --- RĘCZNE WYMUSZENIE SKANOWANIA ---
 @app.route('/project/<int:project_id>/scheduler/run-all', methods=['POST'])
@@ -1404,7 +1449,7 @@ def run_all_tasks(project_id):
 
                         history = PriceHistory(mapping_id=mapping.id, price=new_price, availability=is_avail)
                         db.session.add(history)
-                        
+
                         # --- AKTUALIZACJA CENY WŁASNEJ ---
                         if product.my_url and mapping.url.strip() == product.my_url.strip():
                             product.my_price = new_price
@@ -1480,7 +1525,7 @@ def run_single_task(project_id, task_id):
 
                     history = PriceHistory(mapping_id=mapping.id, price=new_price, availability=is_avail)
                     db.session.add(history)
-                    
+
                     # --- AKTUALIZACJA CENY WŁASNEJ ---
                     if product.my_url and mapping.url.strip() == product.my_url.strip():
                         product.my_price = new_price
@@ -1503,6 +1548,7 @@ def run_single_task(project_id, task_id):
             flash(f'Zadanie wykonane, błąd wysyłki.', category='warning')
 
     return redirect(url_for('project_scheduler', project_id=project_id))
+
 
 # Wyświetlanie strony raportów
 @app.route('/project/<int:project_id>/reports')
@@ -1660,6 +1706,7 @@ def project_analysis(project_id):
                            opportunities=opportunities,
                            threats=threats)
 
+
 @app.route('/project/<int:project_id>/overview')
 @login_required
 def project_overview(project_id):
@@ -1693,6 +1740,7 @@ def project_overview(project_id):
                            recent_activity=recent_activity,
                            last_scan_time=last_scan_time)
 
+
 # TWORZENIE ADMINA - inicjalizacja tylko przy pierwszym uruchomieniu
 @app.route('/create-admin')
 def create_admin():
@@ -1710,6 +1758,7 @@ def create_admin():
         return f"Stworzono admina ({email})! Teraz możesz się zalogować."
     return "Admin już istnieje."
 
+
 # --- REJESTRACJA WIDOKÓW W FLASK-ADMIN ---
 admin.add_view(UserModelView(User, db.session, name='Użytkownicy'))
 admin.add_view(MyModelView(Project, db.session, name='Projekty'))
@@ -1724,4 +1773,4 @@ if __name__ == '__main__':
     with app.app_context():
         db.create_all()
 
-    app.run(debug=True, use_reloader=False)
+    app.run(host='0.0.0.0', port=5005, debug=True, use_reloader=False)
