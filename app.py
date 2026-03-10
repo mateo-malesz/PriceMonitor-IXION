@@ -106,7 +106,15 @@ class MyModelView(ModelView):
 class UserModelView(MyModelView):
     def on_model_change(self, form, model, is_created):
         if form.password.data:
-            model.password = generate_password_hash(form.password.data, method='pbkdf2:sha256')
+            # SPRAWDZENIE: Jeśli hasło NIE zaczyna się od 'pbkdf2:',
+            # to znaczy, że wpisałeś nowe, czyste hasło i trzeba je zahaszować.
+            if not form.password.data.startswith('pbkdf2:sha256'):
+                model.password = generate_password_hash(form.password.data, method='pbkdf2:sha256')
+            else:
+                # Jeśli zaczyna się od pbkdf2, to znaczy, że to stary hash
+                # – nie dotykamy go, zostawiamy tak jak jest w modelu.
+                pass
+
         return super(UserModelView, self).on_model_change(form, model, is_created)
 
 

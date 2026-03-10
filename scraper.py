@@ -5,6 +5,7 @@ import random
 import json
 import re
 import os
+import cloudscraper
 
 # Lista User-Agentów do rotacji
 USER_AGENTS = [
@@ -58,11 +59,12 @@ def get_current_price(url):
     }
 
     # --- TEST IP: PRZED PROXY ---
-    # real_ip = check_my_ip(proxies=None)
-    # print(f"\n[TEST] 1. Prawdziwe IP serwera: {real_ip}")
+    real_ip = check_my_ip(proxies=None)
+    print(f"\n[TEST] 1. Prawdziwe IP serwera: {real_ip}")
 
     # NOWOŚĆ: Konfiguracja Proxy
     proxies = None
+    max_retries = 3
     nord_user = os.environ.get('NORD_USER')
     nord_pass = os.environ.get('NORD_PASS')
 
@@ -76,15 +78,26 @@ def get_current_price(url):
         }
 
         # --- TEST IP: PO PROXY ---
-        # proxy_ip = check_my_ip(proxies=proxies)
-        # print(f"[TEST] 2. Skanuje przez serwer: {current_server}")
-        # print(f"[TEST] 3. Sklep widzi IP: {proxy_ip}")
+        proxy_ip = check_my_ip(proxies=proxies)
+        print(f"[TEST] 2. Skanuje przez serwer: {current_server}")
+        print(f"[TEST] 3. Sklep widzi IP: {proxy_ip}")
     else:
         print("[TEST] Brak danych NordVPN w .env. Lecę na czysto.")
 
     try:
         time.sleep(random.uniform(0.5, 1.5))
         response = requests.get(url, headers=headers, proxies=proxies, timeout=15)
+
+        if 400 <= response.status_code < 500:
+            print(f"[!] Błąd {response.status_code} dla {url}. Odpalam cloudscraper...")
+
+            # Tworzymy instancję scrapera tylko w razie potrzeby
+            scraper = cloudscraper.create_scraper(
+                browser={'browser': 'chrome', 'platform': 'windows', 'desktop': True}
+            )
+
+            # Ponawiamy żądanie za pomocą cloudscrapera
+            response = scraper.get(url, headers=headers, proxies=proxies, timeout=20)
 
         if response.status_code != 200:
             print(f"Błąd połączenia: {response.status_code}")
@@ -229,6 +242,13 @@ def get_current_price(url):
                     if price_span:
                         raw_price = price_span.get_text().replace('Cena:', '').replace('PLN', '').strip()
                         if raw_price: price = raw_price
+
+
+            elif 'rerek.pl' in url:
+                price_element = soup.find('span', id='st_product_options-price-brutto')
+                if price_element:
+                    raw_price = price_element.get_text()
+                    price = raw_price.replace('zł', '').replace('*', '').strip()
 
 
         # ==================================================================
