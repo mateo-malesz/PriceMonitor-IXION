@@ -940,6 +940,11 @@ def add_competitor_url(project_id, product_id):
     if not url:
         flash('Musisz podać link!', category='error')
     else:
+        existing_mapping = ProductMapping.query.filter_by(product_id=product_id, url=url).first()
+        if existing_mapping:
+            flash('Ten link jest już monitorowany dla tego produktu!', category='warning')
+            return redirect(url_for('product_details', project_id=project_id, product_id=product_id))
+
         parsed_uri = urlparse(url)
         domain = parsed_uri.netloc.replace('www.', '')
 
