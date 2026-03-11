@@ -9,6 +9,9 @@ import urllib.parse
 import cloudscraper
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+import logging
+
+logger = logging.getLogger(__name__)
 
 # Lista User-Agentów do rotacji
 USER_AGENTS = [
@@ -51,24 +54,24 @@ def init_batch_session():
     nord_pass = os.environ.get('NORD_PASS')
 
     if not nord_user or not nord_pass:
-        print("[PROXY] Brak danych NordVPN - tryb bezpośredni (bez proxy).")
+        logger.warning("[PROXY] Brak danych NordVPN - tryb bezpośredni (bez proxy).")
         return session
 
     safe_nord_pass = urllib.parse.quote(nord_pass)
 
-    print("--- INICJALIZACJA PROXY DLA PACZKI ZADAŃ ---")
+    logger.info("--- INICJALIZACJA PROXY DLA PACZKI ZADAŃ ---")
     for attempt in range(1, 4):
         current_server = random.choice(NORD_SERVERS)
         proxy_url = f"socks5h://{nord_user}:{safe_nord_pass}@{current_server}"
         session.proxies = {"http": proxy_url, "https": proxy_url}
 
-        print(f"[PROXY] Próba {attempt}/3 - Łączenie z {current_server}...")
+        logger.info(f"[PROXY] Próba {attempt}/3 - Łączenie z {current_server}...")
 
         try:
             # Testujemy połączenie
             resp = session.get("http://api.ipify.org", timeout=10)
             if resp.status_code == 200:
-                print(f"[PROXY] Sukces! Połączono. IP widoczne w sieci: {resp.text}")
+                logger.info(f"[PROXY] Sukces! Połączono. IP widoczne w sieci: {resp.text}")
                 return session  # Zwracamy sprawną sesję
         except requests.exceptions.RequestException as e:
             print(f"[PROXY] Błąd na próbie {attempt}: {e}")
@@ -85,7 +88,7 @@ def close_batch_session(session):
     if session:
         session.proxies = {}
         session.close()
-        print("--- SESJA I PROXY ZAKOŃCZONE ---")
+        logger.info("--- SESJA I PROXY ZAKOŃCZONE ---")
 
 
 def get_current_price(url, session):
@@ -97,12 +100,12 @@ def get_current_price(url, session):
         try:
             response = session.get(url, timeout=15)
         except requests.exceptions.RequestException as e:
-            print(f"[!] Błąd połączenia dla {url}: {e}")
+            logger.error(f"[!] Błąd połączenia dla {url}: {e}")
             return None, False
 
         # Jeśli błędy 400-500 (np. ban 403), używamy Cloudscrapera, zachowując TO SAMO PROXY
         if 400 <= response.status_code < 500:
-            print(f"[!] Sklep zwrócił błąd {response.status_code} dla {url}. Odpalam Cloudscraper...")
+            logger.error(f"[!] Sklep zwrócił błąd {response.status_code} dla {url}. Odpalam Cloudscraper...")
 
             scraper = cloudscraper.create_scraper(
                 browser={'browser': 'chrome', 'platform': 'windows', 'desktop': True}
@@ -113,11 +116,11 @@ def get_current_price(url, session):
             try:
                 response = scraper.get(url, timeout=20)
             except requests.exceptions.RequestException as e:
-                print(f"[!] Cloudscraper też wyrzucił błąd: {e}")
+                logger.error(f"[!] Cloudscraper też wyrzucił błąd: {e}")
                 return None, False
 
         if response.status_code != 200:
-            print(f"Ostateczny błąd HTTP: {response.status_code}")
+            logger.error(f"Ostateczny błąd HTTP: {response.status_code}")
             return None, False
 
         # --- PARSOWANIE ---
@@ -242,9 +245,9 @@ def get_current_price(url, session):
                 final_price = float(price)
             return final_price, available
         else:
-            print(f"Nie znaleziono ceny: {url}")
+            logger.warning(f"Nie znaleziono ceny: {url}")
             return None, False
 
     except Exception as e:
-        print(f"Wyjątek krytyczny scrapera: {e}")
+        logger.error(f"Wyjątek krytyczny scrapera: {e}")
         return None, False
