@@ -32,8 +32,8 @@
                             </div>
 
                             <div class="mb-3">
-                                <label class="form-label fw-bold small text-uppercase text-muted">Godzina startu</label>
-                                <input type="time" name="run_time" class="form-control" required value="08:00">
+                                <label for="runTime" class="form-label fw-bold small text-uppercase text-muted">Godzina startu</label>
+                                <input type="time" name="run_time" id="runTime" class="form-control" required value="08:00">
                                 <div class="form-text">Zadanie uruchomi się dokładnie o tej godzinie.</div>
                             </div>
 
@@ -172,10 +172,8 @@
 <script>
 function toggleDays(show) {
     const container = document.getElementById('daysContainer');
-    if (show) {
-        container.style.display = 'block';
-    } else {
-        container.style.display = 'none';
+    if (container) {
+        container.style.display = show ? 'block' : 'none';
     }
 }
 
@@ -183,29 +181,50 @@ function toggleDays(show) {
 function toggleWarning() {
     const select = document.getElementById('brandSelect');
     const warning = document.getElementById('allProductsWarning');
-    if (select.value === 'all') {
-        warning.style.display = 'block';
-    } else {
-        warning.style.display = 'none';
+
+    if (select && warning) {
+        if (select.value === 'all') {
+            warning.style.display = 'block';
+        } else {
+            warning.style.display = 'none';
+        }
     }
 }
 
-// Zabezpieczenie przed wysłaniem formularza (Wyskakujące okienko)
-document.getElementById('addTaskForm').addEventListener('submit', function(event) {
-    const select = document.getElementById('brandSelect');
-    if (select.value === 'all') {
-        const confirmed = confirm("⚠️ OSTRZEŻENIE ⚠️\n\nCzy na pewno chcesz zaplanować zadanie dla WSZYSTKICH produktów?\n\nSpowoduje to sprawdzenie każdego linku w projekcie, co generuje duże obciążenie i zwiększa ryzyko czasowego zablokowania proxy.\n\nZaleca się dzielenie zadań na konkretne marki. Kliknij OK, aby kontynuować, lub Anuluj, aby zmienić wybór.");
+// Zabezpieczenie przed wysłaniem formularza
+const form = document.getElementById('addTaskForm');
+if (form) {
+    form.addEventListener('submit', function(event) {
+        const select = document.getElementById('brandSelect');
+        if (select && select.value === 'all') {
+            const confirmed = confirm("⚠️ OSTRZEŻENIE ⚠️\n\nCzy na pewno chcesz zaplanować zadanie dla WSZYSTKICH produktów?\n\nSpowoduje to sprawdzenie każdego linku w projekcie, co generuje duże obciążenie i zwiększa ryzyko czasowego zablokowania proxy.\n\nZaleca się dzielenie zadań na konkretne marki. Kliknij OK, aby kontynuować, lub Anuluj, aby zmienić wybór.");
 
-        if (!confirmed) {
-            event.preventDefault(); // Zatrzymuje wysłanie formularza, jeśli użytkownik kliknie Anuluj
+            if (!confirmed) {
+                event.preventDefault(); // Zatrzymuje wysłanie formularza
+            }
         }
-    }
-});
+    });
+}
 
 // Uruchomienie sprawdzania ostrzeżenia przy załadowaniu strony
 document.addEventListener("DOMContentLoaded", function() {
     toggleWarning();
 });
+
+// Wymuszenie otwarcia wyboru godziny po kliknięciu w całe pole
+const runTimeInput = document.getElementById('runTime');
+if (runTimeInput) {
+    runTimeInput.addEventListener('click', function(event) {
+        // Sprawdzamy, czy przeglądarka obsługuje tę metodę (większość nowych obsługuje)
+        if ('showPicker' in HTMLInputElement.prototype) {
+            try {
+                this.showPicker();
+            } catch (error) {
+                // Ignorujemy błędy (np. jeśli picker jest już otwarty)
+            }
+        }
+    });
+}
 </script>
 
 {% endblock %}
