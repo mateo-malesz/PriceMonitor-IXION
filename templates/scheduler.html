@@ -16,17 +16,19 @@
                         <h5 class="card-title fw-bold mb-3">Dodaj nowe zadanie</h5>
                         <p class="text-muted small mb-4">Wybierz, co system ma skanować, o której godzinie i w jakie dni.</p>
 
-                        <form method="POST" action="{{ url_for('add_task', project_id=project.id) }}">
+                       <form method="POST" action="{{ url_for('add_task', project_id=project.id) }}" id="addTaskForm">
 
                             <div class="mb-3">
                                 <label class="form-label fw-bold small text-uppercase text-muted">Zakres</label>
-                                <select name="brand_id" class="form-select">
+                                <select name="brand_id" id="brandSelect" class="form-select" onchange="toggleWarning()">
                                     <option value="all">Wszystkie Produkty</option>
-                                    <hr>
-                                    {% for brand in brands %}
+                                    {% for brand in brands | sort(attribute='name') %}
                                         <option value="{{ brand.id }}">Tylko marka: {{ brand.name }}</option>
                                     {% endfor %}
                                 </select>
+                                <div id="allProductsWarning" class="form-text text-danger mt-2 fw-bold" style="display: block;">
+                                    <i class="bi bi-exclamation-triangle-fill me-1"></i> Uwaga: Skanowanie całego projektu może mocno obciążyć serwery proxy.
+                                </div>
                             </div>
 
                             <div class="mb-3">
@@ -176,6 +178,34 @@ function toggleDays(show) {
         container.style.display = 'none';
     }
 }
+
+// Funkcja pokazująca/ukrywająca czerwony tekst ostrzegawczy
+function toggleWarning() {
+    const select = document.getElementById('brandSelect');
+    const warning = document.getElementById('allProductsWarning');
+    if (select.value === 'all') {
+        warning.style.display = 'block';
+    } else {
+        warning.style.display = 'none';
+    }
+}
+
+// Zabezpieczenie przed wysłaniem formularza (Wyskakujące okienko)
+document.getElementById('addTaskForm').addEventListener('submit', function(event) {
+    const select = document.getElementById('brandSelect');
+    if (select.value === 'all') {
+        const confirmed = confirm("⚠️ OSTRZEŻENIE ⚠️\n\nCzy na pewno chcesz zaplanować zadanie dla WSZYSTKICH produktów?\n\nSpowoduje to sprawdzenie każdego linku w projekcie, co generuje duże obciążenie i zwiększa ryzyko czasowego zablokowania proxy.\n\nZaleca się dzielenie zadań na konkretne marki. Kliknij OK, aby kontynuować, lub Anuluj, aby zmienić wybór.");
+
+        if (!confirmed) {
+            event.preventDefault(); // Zatrzymuje wysłanie formularza, jeśli użytkownik kliknie Anuluj
+        }
+    }
+});
+
+// Uruchomienie sprawdzania ostrzeżenia przy załadowaniu strony
+document.addEventListener("DOMContentLoaded", function() {
+    toggleWarning();
+});
 </script>
 
 {% endblock %}
