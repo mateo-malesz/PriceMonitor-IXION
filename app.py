@@ -1333,7 +1333,8 @@ def run_scheduled_scans():
         batch_session = init_batch_session()
 
         for task in tasks_to_run:
-            task_name = f"Raport ({current_time})"
+            task_label = f"Marka {task.brand.name}" if task.brand else "Cały Projekt"
+            task_name = f"Raport ({current_time}) - {task_label}"
             scan_results = []
 
             query = Product.query.filter_by(project_id=task.project_id)
