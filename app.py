@@ -8,13 +8,13 @@ from flask import make_response
 import xml.etree.ElementTree as ET
 from flask_apscheduler import APScheduler
 from datetime import datetime, date, timezone
+from scraper import get_current_price, init_batch_session, close_batch_session
 
 try:
     from zoneinfo import ZoneInfo
 except ImportError:
-    from backports.zoneinfo import ZoneInfo  # Dla starszych wersji Pythona
+    from backports.zoneinfo import ZoneInfo
 
-from scraper import get_current_price
 from flask_admin import Admin, AdminIndexView, expose
 from flask_admin.contrib.sqla import ModelView
 import requests
@@ -981,12 +981,14 @@ def refresh_prices(project_id, product_id):
 
     logger.info(f"--- [REFRESH] Odświeżam produkt: {product.title} ---")
 
+    session = init_batch_session()
+
     for mapping in product.mappings:
         if mapping.is_active:
             logger.info(f" -> Sprawdzam URL: {mapping.url}")
 
             try:
-                result = get_current_price(mapping.url)
+                result = get_current_price(mapping.url, session)
 
                 if not result or not isinstance(result, tuple):
                     logger.warning(f"    !!! BŁĄD: Scraper zwrócił błędne dane: {result}")
@@ -1020,6 +1022,7 @@ def refresh_prices(project_id, product_id):
                 logger.error(f"    !!! KRTYYCZNY BŁĄD przy linku {mapping.url}: {e}", exc_info=True)
                 continue
 
+    close_batch_session(session)
     db.session.commit()
 
     if updated_count > 0:
@@ -1327,6 +1330,7 @@ def run_scheduled_scans():
             return
 
         logger.info(f"--- [SCHEDULER] Uruchamiam {len(tasks_to_run)} zadań ---")
+        batch_session = init_batch_session()
 
         for task in tasks_to_run:
             task_name = f"Raport ({current_time})"
@@ -1345,7 +1349,7 @@ def run_scheduled_scans():
                         logger.info(f"Sprawdzam: {mapping.shop.name} -> {mapping.url[:30]}...")
 
                         try:
-                            result = get_current_price(mapping.url)
+                            result = get_current_price(mapping.url, batch_session)
                             if result and isinstance(result, tuple):
                                 new_price, is_avail = result
                             else:
@@ -1399,6 +1403,7 @@ def run_scheduled_scans():
                     logger.info(f"[SCHEDULER] Zadanie wykonane. Raport wysłany!")
                 except Exception as e:
                     logger.error(f"[SCHEDULER ERROR] Zadanie wykonane, ale błąd wysyłki: {e}", exc_info=True)
+        close_batch_session(batch_session)
 
 
 # --- RĘCZNE WYMUSZENIE SKANOWANIA ---
@@ -1417,6 +1422,7 @@ def run_all_tasks(project_id):
 
     logger.info(f"--- [FORCE RUN] Start {len(tasks)} zadań ---")
     total_scanned = 0
+    batch_session = init_batch_session()
 
     for task in tasks:
         task_label = f"Raport: Marka {task.brand.name}" if task.brand else "Raport: Cały Projekt"
@@ -1434,7 +1440,7 @@ def run_all_tasks(project_id):
                     old_price = mapping.last_price
 
                     try:
-                        result = get_current_price(mapping.url)
+                        result = get_current_price(mapping.url, batch_session)
                         if result and isinstance(result, tuple):
                             new_price, is_avail = result
                         else:
@@ -1482,7 +1488,7 @@ def run_all_tasks(project_id):
                 send_enhanced_report(task_name, scan_results)
             except Exception as e:
                 logger.error(f"Error sending report: {e}", exc_info=True)
-
+    close_batch_session(batch_session)
     flash(f'Zakończono. Sprawdzono {total_scanned} linków.', category='success')
     return redirect(url_for('project_scheduler', project_id=project.id))
 
@@ -1504,13 +1510,15 @@ def run_single_task(project_id, task_id):
         query = query.filter_by(brand_id=task.brand_id)
     products = query.all()
 
+    batch_session = init_batch_session()
+
     for product in products:
         for mapping in product.mappings:
             if mapping.is_active:
                 old_price = mapping.last_price
 
                 try:
-                    result = get_current_price(mapping.url)
+                    result = get_current_price(mapping.url, batch_session)
                     if result and isinstance(result, tuple):
                         new_price, is_avail = result
                     else:
@@ -1560,6 +1568,7 @@ def run_single_task(project_id, task_id):
             logger.error(f"Error sending report: {e}", exc_info=True)
             flash(f'Zadanie wykonane, błąd wysyłki.', category='warning')
 
+    close_batch_session(batch_session)
     return redirect(url_for('project_scheduler', project_id=project_id))
 
 
