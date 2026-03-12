@@ -1294,7 +1294,7 @@ def send_enhanced_report(task_name, scan_results):
         html_body += f"""
                 <div style="text-align: center; margin-top: 30px; border-top: 1px solid #eee; padding-top: 20px;">
                     <p style="margin-bottom: 10px;">Pełna lista produktów znajduje się w załączonym pliku <b>raport_skanowania.csv</b></p>
-                    <a href="http://127.0.0.1:5000" style="background-color: #0d6efd; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; font-weight: bold;">Przejdź do Panelu</a>
+                    <a href="http://192.168.24.112:5005" style="background-color: #0d6efd; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; font-weight: bold;">Przejdź do Panelu</a>
                 </div>
             </div>
         </body>
