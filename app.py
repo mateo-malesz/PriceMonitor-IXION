@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, flash
+from flask import Flask, render_template, request, redirect, url_for, flash, session
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -478,7 +478,7 @@ def project_dashboard(project_id):
     if current_user not in project.users:
         flash('Brak dostępu.', category='error')
         return redirect(url_for('projects'))
-
+    session[f'dashboard_url_{project_id}'] = request.full_path
     # Pobieramy parametry filtrowania i sortowania
     search_query = request.args.get('q', '')
     brand_filter = request.args.get('brand', '')
