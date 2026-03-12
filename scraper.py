@@ -221,7 +221,7 @@ def get_current_price(url, session):
             elif 'rerek.pl' in url:
                 elem = soup.find('span', id='st_product_options-price-brutto')
                 if elem: price = elem.get_text().replace('zł', '').replace('*', '').strip()
-                elif 'edumax.com.pl' in url:
+            elif 'edumax.com.pl' in url:
                     edumax_elem = soup.find('strong', id='projector_price_value')
                     if edumax_elem:
                         raw_price = edumax_elem.get('data-price')

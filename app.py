@@ -1030,7 +1030,7 @@ def refresh_prices(project_id, product_id):
                     if product.my_url and mapping.url.strip() == product.my_url.strip():
                         product.my_price = new_price
                         logger.info(f"    -> Zaktualizowano cenę własną produktu na: {new_price} PLN")
-
+                    db.session.commit()
                 else:
                     logger.warning("    -> Brak ceny (strona nie zwróciła wyniku)")
 
@@ -1401,6 +1401,7 @@ def run_scheduled_scans():
                         else:
                             result_entry['status'] = 'error'
                             result_entry['msg'] = 'Nie znaleziono ceny'
+                        db.session.commit()
 
                         if new_price:
                             logger.info(f"Sukces: {new_price} PLN")
@@ -1493,6 +1494,7 @@ def run_all_tasks(project_id):
                     else:
                         result_entry['status'] = 'error'
                         result_entry['msg'] = 'Nie znaleziono ceny'
+                    db.session.commit()
 
                     scan_results.append(result_entry)
                     total_scanned += 1
@@ -1571,6 +1573,7 @@ def run_single_task(project_id, task_id):
                 else:
                     result_entry['status'] = 'error'
                     result_entry['msg'] = 'Nie znaleziono ceny'
+                db.session.commit()
 
                 scan_results.append(result_entry)
 
