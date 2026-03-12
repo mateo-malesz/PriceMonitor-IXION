@@ -104,8 +104,11 @@ def get_current_price(url, session):
             return None, False
 
         # Jeśli błędy 400-500 (np. ban 403), używamy Cloudscrapera, zachowując TO SAMO PROXY
-        if 400 <= response.status_code < 500:
-            logger.error(f"[!] Sklep zwrócił błąd {response.status_code} dla {url}. Odpalam Cloudscraper...")
+        if response.status_code in [404, 410]:
+            logger.error(f"[!] Produkt nie istnieje (Błąd {response.status_code}): {url}")
+            return None, False
+        if response.status_code in [401, 403, 429, 503]:
+            logger.warning(f"[!] Sklep zablokował dostęp (Błąd {response.status_code}). Odpalam Cloudscraper...")
 
             scraper = cloudscraper.create_scraper(
                 browser={'browser': 'chrome', 'platform': 'windows', 'desktop': True}
