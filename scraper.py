@@ -221,6 +221,24 @@ def get_current_price(url, session):
             elif 'rerek.pl' in url:
                 elem = soup.find('span', id='st_product_options-price-brutto')
                 if elem: price = elem.get_text().replace('zł', '').replace('*', '').strip()
+                elif 'edumax.com.pl' in url:
+                    edumax_elem = soup.find('strong', id='projector_price_value')
+                    if edumax_elem:
+                        raw_price = edumax_elem.get('data-price')
+                        if not raw_price or raw_price.strip() == '':
+                            raw_price = edumax_elem.text.strip()
+                        if raw_price:
+                            price = raw_price
+            elif 'pomocedydaktyczne.eu' in url:
+                price_element = soup.find('span', class_='brutto')
+                if price_element:
+                    raw_price = price_element.text.strip()
+                    if raw_price: price = raw_price
+            elif 'akademia-umyslu.pl' in url:
+                price_element = soup.find('span', id='price_mob_span')
+                if price_element:
+                    raw_price = price_element.text.strip()
+                    if raw_price: price = raw_price
 
         # TEKST
         if available:
