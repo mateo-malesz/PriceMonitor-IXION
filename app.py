@@ -848,13 +848,20 @@ def import_links(project_id):
     return render_template('import_links.html', project=project)
 
 def import_purchase_prices(file_bytes, filename, project_id):
+    import re
+    logger.info(f"[IMPORT] Start funkcji, filename={filename}")
     stats = {'updated': 0, 'not_found': 0, 'skipped': 0, 'error': None}
+    logger.info(f"[IMPORT] filename ends xlsx: {filename.endswith('.xlsx')}, ends csv: {filename.endswith('.csv')}")
     try:
         # Obsługa XLSX i CSV
         if filename.endswith('.xlsx'):
+            logger.info("[IMPORT] Ładuję openpyxl...")
             import openpyxl
+            logger.info("[IMPORT] openpyxl załadowany, otwieram workbook...")
             wb = openpyxl.load_workbook(io.BytesIO(file_bytes))
+            logger.info(f"[IMPORT] Workbook otwarty: {wb.sheetnames}")
             ws = wb.active
+            logger.info(f"[IMPORT] Arkusz aktywny: {ws.dimensions}")
 
             # Szukamy kolumn po nagłówku, nie indeksie
             headers = {}
@@ -865,51 +872,118 @@ def import_purchase_prices(file_bytes, filename, project_id):
             sku_col = headers.get('Symbol')
             price_col = next((v for k, v in headers.items() if 'ostatnia cena zakupu brutto' in k.lower() and 'brutto -' in k.lower()), None)
 
+            logger.info(f"[IMPORT] Znalezione nagłówki: {list(headers.keys())}")
+            logger.info(f"[IMPORT] sku_col={sku_col}, price_col={price_col}")
+
             if sku_col is None or price_col is None:
                 stats['error'] = f"Nie znaleziono wymaganych kolumn. Znalezione: {list(headers.keys())}"
+                logger.error(f"[IMPORT] Brak kolumn! {stats['error']}")
                 return stats
 
+            logger.info(f"[IMPORT] Zaczynam przetwarzać wiersze...")
             rows = list(ws.iter_rows(min_row=2, values_only=True))
+            logger.info(f"[IMPORT] Wierszy do przetworzenia: {len(rows)}")
+
+
+
 
         elif filename.endswith('.csv'):
+
+            logger.info("[IMPORT CSV] Zaczynam dekodowanie...")
+
             decoded = None
-            for enc in ['utf-8', 'windows-1250', 'latin-1']:
+
+            for enc in ['utf-8-sig', 'utf-8', 'windows-1250', 'latin-1']:
+
                 try:
+
                     decoded = file_bytes.decode(enc)
+
+                    logger.info(f"[IMPORT CSV] Zdekodowano jako {enc}")
+
                     break
+
                 except UnicodeDecodeError:
+
                     continue
+
             if not decoded:
                 stats['error'] = "Nie udało się odczytać pliku CSV."
+
+                logger.error("[IMPORT CSV] Żadne dekodowanie nie zadziałało.")
+
                 return stats
 
-            stream = io.StringIO(decoded)
+            # --- PANCERNY BLOK DO ŁAPANIA UKRYTYCH BŁĘDÓW ---
+
             try:
-                dialect = csv.Sniffer().sniff(stream.read(2048))
-                stream.seek(0)
-            except csv.Error:
-                dialect = csv.excel
-                dialect.delimiter = ';'
-                stream.seek(0)
 
-            reader = list(csv.reader(stream, dialect))
-            if not reader:
-                stats['error'] = "Plik jest pusty."
+                logger.info(f"[IMPORT CSV] Tworzę StringIO, długość tekstu: {len(decoded)}")
+
+                # Zabezpieczenie: importy lokalne, żeby wykluczyć NameError na tym etapie
+
+                import io
+
+                import csv
+
+                import re
+
+                stream = io.StringIO(decoded)
+
+                logger.info("[IMPORT CSV] io.StringIO utworzone. Czytam CSV (csv.reader)...")
+
+                reader = list(csv.reader(stream, delimiter=';'))
+
+                logger.info(f"[IMPORT CSV] Zbudowano listę wierszy. Łącznie wierszy: {len(reader)}")
+
+                if not reader:
+                    stats['error'] = "Plik jest pusty."
+
+                    logger.warning("[IMPORT CSV] Przerwano: plik pusty po przetworzeniu.")
+
+                    return stats
+
+                header_row = reader[0]
+
+                headers = {str(h).strip(): i for i, h in enumerate(header_row)}
+
+                logger.info(f"[IMPORT CSV] Nagłówki: {headers}")
+
+                sku_col = headers.get('Symbol')
+
+                price_col = next((v for k, v in headers.items() if
+
+                                  'ostatnia cena zakupu brutto' in k.lower() and 'brutto -' in k.lower()), None)
+
+                logger.info(f"[IMPORT CSV] Zmapowane kolumny: sku_col={sku_col}, price_col={price_col}")
+
+                if sku_col is None or price_col is None:
+                    stats['error'] = f"Nie znaleziono wymaganych kolumn. Znalezione: {list(headers.keys())}"
+
+                    logger.error(f"[IMPORT CSV] Brak kolumn. Przerywam.")
+
+                    return stats
+
+                rows = reader[1:]
+
+                logger.info(f"[IMPORT CSV] Przechodzę do aktualizacji {len(rows)} wierszy w bazie.")
+
+
+            except Exception as e:
+
+                # To wyłapie KAŻDY błąd i wypluje go do konsoli z pełną ścieżką
+
+                logger.error(f"[CRITICAL ERROR CSV] Wywrotka podczas analizy pliku: {str(e)}", exc_info=True)
+
+                stats['error'] = f"Błąd krytyczny serwera: {str(e)}"
+
                 return stats
 
-            header_row = reader[0]
-            headers = {str(h).strip(): i for i, h in enumerate(header_row)}
 
-            sku_col = headers.get('Symbol')
-            price_col = next((v for k, v in headers.items() if 'ostatnia cena zakupu brutto' in k.lower() and 'brutto -' in k.lower()), None)
-
-            if sku_col is None or price_col is None:
-                stats['error'] = f"Nie znaleziono wymaganych kolumn. Znalezione: {list(headers.keys())}"
-                return stats
-
-            rows = reader[1:]
         else:
+
             stats['error'] = "Nieobsługiwany format pliku. Użyj .xlsx lub .csv"
+
             return stats
 
         # Pobieramy wszystkie produkty projektu do cache (uppercase SKU)
@@ -974,11 +1048,14 @@ def import_purchase_prices_view(project_id):
         return redirect(url_for('projects'))
 
     if request.method == 'POST':
+        logger.info(f"[IMPORT] Otrzymano POST, pliki: {request.files}")
+
         if 'file' not in request.files:
             flash('Nie wybrano pliku.', category='error')
             return redirect(request.url)
 
         file = request.files['file']
+
         if file.filename == '':
             flash('Nie wybrano pliku.', category='error')
             return redirect(request.url)
@@ -988,7 +1065,12 @@ def import_purchase_prices_view(project_id):
             flash('Obsługiwane formaty: .xlsx, .csv', category='error')
             return redirect(request.url)
 
+        logger.info(f"[IMPORT] Plik: {file.filename}, rozmiar: {file.content_length}")
+
+        # CZYTAMY PLIK TYLKO RAZ
         file_bytes = file.stream.read()
+        logger.info(f"[IMPORT] Wczytano bajtów: {len(file_bytes)}")
+
         result = import_purchase_prices(file_bytes, filename, project_id)
 
         if result['error']:
@@ -1004,7 +1086,6 @@ def import_purchase_prices_view(project_id):
         return redirect(url_for('project_dashboard', project_id=project_id))
 
     return render_template('import_purchase_prices.html', project=project)
-
 
 # --- WIDOK SZCZEGÓŁÓW PRODUKTU ---
 @app.route('/project/<int:project_id>/product/<int:product_id>')
