@@ -115,6 +115,11 @@ class MyModelView(ModelView):
         flash('Brak uprawnień administratora.', category='error')
         return redirect(url_for('home'))
 
+class ProductModelView(MyModelView):
+    column_searchable_list = ['title', 'sku', 'gtin']
+    column_filters = ['brand', 'project', 'is_active', 'availability']
+    column_list = ['title', 'sku', 'brand', 'project', 'my_price', 'is_active']
+    column_sortable_list = ['title', 'sku', 'my_price']
 
 class UserModelView(MyModelView):
     def on_model_change(self, form, model, is_created):
@@ -1971,7 +1976,7 @@ def create_admin():
 admin.add_view(UserModelView(User, db.session, name='Użytkownicy'))
 admin.add_view(MyModelView(Project, db.session, name='Projekty'))
 admin.add_view(MyModelView(Brand, db.session, name='Marki'))
-admin.add_view(MyModelView(Product, db.session, name='Produkty'))
+admin.add_view(ProductModelView(Product, db.session, name='Produkty'))
 admin.add_view(MyModelView(Shop, db.session, name='Sklepy'))
 admin.add_view(MyModelView(ProductMapping, db.session, name='Linki (Mapping)'))
 admin.add_view(MyModelView(ScheduledTask, db.session, name='Harmonogram'))
