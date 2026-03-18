@@ -34,8 +34,6 @@ TIMEZONE = ZoneInfo("Europe/Warsaw")
 def get_current_time():
     return datetime.now(TIMEZONE)
 
-DAY_MAP = {'mon': 0, 'tue': 1, 'wed': 2, 'thu': 3, 'fri': 4, 'sat': 5, 'sun': 6}
-
 # --- KONFIGURACJA LOGOWANIA ---
 # Ustawiamy RotatingFileHandler: max 1MB na plik, trzymamy 5 ostatnich plików
 file_handler = RotatingFileHandler('app.log', maxBytes=1024 * 1024, backupCount=5)
@@ -1342,7 +1340,7 @@ def run_scheduled_scans():
                 continue
 
             if task.frequency == 'weekly' and task.days_of_week:
-                allowed_days = [DAY_MAP[d.strip()] for d in task.days_of_week.split(',') if d.strip() in DAY_MAP]
+                allowed_days = [int(d.strip()) for d in task.days_of_week.split(',') if d.strip().isdigit()]
                 if now.weekday() not in allowed_days:
                     continue
 
