@@ -1165,6 +1165,153 @@ def delete_task(project_id, task_id):
     return redirect(url_for('project_scheduler', project_id=project_id))
 
 
+# def send_enhanced_report(task_name, scan_results):
+#     logger.info(f"[MAIL] Rozpoczynam przygotowanie raportu: {task_name}")
+#     if not scan_results:
+#         logger.info("[MAIL] Brak wyników do wysłania.")
+#         return
+#
+#     try:
+#         logger.info("[MAIL] Generuję plik CSV...")
+#         csv_buffer = io.StringIO()
+#         csv_writer = csv.writer(csv_buffer, delimiter=';', quoting=csv.QUOTE_MINIMAL)
+#         csv_writer.writerow(['Produkt', 'SKU', 'Sklep', 'Status', 'Stara Cena', 'Nowa Cena', 'Zmiana', 'Link', 'Info'])
+#
+#         changes = []
+#         errors = []
+#
+#         for item in scan_results:
+#             diff = ""
+#             if item.get('old_price') and item.get('new_price'):
+#                 try:
+#                     diff = f"{round(item['new_price'] - item['old_price'], 2)} PLN"
+#                 except:
+#                     diff = ""
+#
+#             csv_writer.writerow([
+#                 item['product'],
+#                 item['sku'],
+#                 item['shop'],
+#                 item['status'].upper(),
+#                 item['old_price'] if item['old_price'] else '',
+#                 item['new_price'] if item['new_price'] else '',
+#                 diff,
+#                 item['url'],
+#                 item['msg']
+#             ])
+#
+#             if item['status'] == 'change':
+#                 changes.append(item)
+#             elif item['status'] == 'error':
+#                 errors.append(item)
+#
+#         csv_buffer.seek(0)
+#
+#         # print("[MAIL] Pobieram URL logo...")
+#         # logo_url = "http://127.0.0.1:5000/static/logo.png"
+#         # try:
+#         #     with app.test_request_context():
+#         #         logo_url = url_for('static', filename='logo.png', _external=True)
+#         # except:
+#         #     pass
+#
+#         logger.info("[MAIL] Generuję treść HTML...")
+#         html_body = f"""
+#         <html>
+#         <body style="font-family: Arial, sans-serif; color: #333;">
+#             <div style="max-width: 600px; margin: 0 auto; border: 1px solid #ddd; padding: 20px; border-radius: 8px;">
+#
+#                 <div style="text-align: center; margin-bottom: 20px;">
+#                     <h2 style="margin-top: 10px; color: #000;">Raport Skanowania</h2>
+#                     <p style="color: #777; font-size: 14px;">{task_name} | {date.today()}</p>
+#                 </div>
+#
+#                 <div style="display: flex; gap: 10px; margin-bottom: 20px;">
+#                     <div style="flex: 1; background: #f8f9fa; padding: 10px; text-align: center; border-radius: 5px;">
+#                         <div style="font-size: 24px; font-weight: bold;">{len(scan_results)}</div>
+#                         <div style="font-size: 12px; color: #666;">Sprawdzono</div>
+#                     </div>
+#                     <div style="flex: 1; background: #e8f5e9; padding: 10px; text-align: center; border-radius: 5px;">
+#                         <div style="font-size: 24px; font-weight: bold; color: #198754;">{len(changes)}</div>
+#                         <div style="font-size: 12px; color: #198754;">Zmiany Cen</div>
+#                     </div>
+#                     <div style="flex: 1; background: #fce4ec; padding: 10px; text-align: center; border-radius: 5px;">
+#                         <div style="font-size: 24px; font-weight: bold; color: #dc3545;">{len(errors)}</div>
+#                         <div style="font-size: 12px; color: #dc3545;">Błędy</div>
+#                     </div>
+#                 </div>
+#
+#                 {'<h3 style="border-bottom: 2px solid #198754; padding-bottom: 5px;">📉 Wykryte Zmiany Cen</h3>' if changes else ''}
+#                 {'<table style="width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 20px;">' if changes else ''}
+#                 {'<tr style="background: #f1f1f1; text-align: left;"><th>Produkt</th><th>Sklep</th><th>Cena</th></tr>' if changes else ''}
+#         """
+#
+#         for item in changes:
+#             price_color = "#198754"
+#             arrow = "▼"
+#
+#             # Zabezpieczenie przed porównaniem z None
+#             if item.get('old_price') is not None and item.get('new_price') is not None:
+#                 if item['new_price'] > item['old_price']:
+#                     price_color = "#dc3545"
+#                     arrow = "▲"
+#             else:
+#                 # Jeśli nie ma starej ceny, traktujemy to jako nową cenę (zielony)
+#                 price_color = "#198754"
+#                 arrow = ""
+#
+#             html_body += f"""
+#             <tr style="border-bottom: 1px solid #eee;">
+#                 <td style="padding: 8px;"><b>{item['product']}</b><br><span style="color:#777; font-size:11px;">{item['sku']}</span></td>
+#                 <td style="padding: 8px;">{item['shop']}</td>
+#                 <td style="padding: 8px; font-weight: bold; color: {price_color};">
+#                     {item['old_price'] if item['old_price'] else '-'} &rarr; {item['new_price']} PLN {arrow}
+#                 </td>
+#             </tr>
+#             """
+#
+#         if changes:
+#             html_body += "</table>"
+#
+#         if errors:
+#             html_body += '<h3 style="border-bottom: 2px solid #dc3545; padding-bottom: 5px;">⚠️ Problemy z linkami</h3>'
+#             html_body += '<table style="width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 20px;">'
+#             html_body += '<tr style="background: #f1f1f1; text-align: left;"><th>Produkt</th><th>Sklep</th><th>Błąd</th></tr>'
+#
+#             for item in errors:
+#                 html_body += f"""
+#                 <tr style="border-bottom: 1px solid #eee;">
+#                     <td style="padding: 8px;">{item['product']}</td>
+#                     <td style="padding: 8px;">{item['shop']}</td>
+#                     <td style="padding: 8px; color: #dc3545;">{item['msg']}</td>
+#                 </tr>
+#                 """
+#             html_body += "</table>"
+#
+#         html_body += f"""
+#                 <div style="text-align: center; margin-top: 30px; border-top: 1px solid #eee; padding-top: 20px;">
+#                     <p style="margin-bottom: 10px;">Pełna lista produktów znajduje się w załączonym pliku <b>raport_skanowania.csv</b></p>
+#                     <a href="http://192.168.24.112:5005" style="background-color: #0d6efd; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; font-weight: bold;">Przejdź do Panelu</a>
+#                 </div>
+#             </div>
+#         </body>
+#         </html>
+#         """
+#         logger.info("[MAIL] Łączę z serwerem SMTP...")
+#         recipient = app.config.get('MAIL_RECIPIENT') or app.config['MAIL_DEFAULT_SENDER']
+#         try:
+#             msg = Message(f"{task_name} - Raport Cenowy", recipients=[recipient])
+#             msg.html = html_body
+#
+#             msg.attach("raport_skanowania.csv", "text/csv", csv_buffer.getvalue().encode('utf-8-sig'))
+#
+#             mail.send(msg)
+#             logger.info("--- [MAIL] Raport Enhanced wysłany! ---")
+#         except Exception as e:
+#             logger.error(f"--- [MAIL ERROR] {e}", exc_info=True)
+#     except Exception as e:
+#         logger.critical(f"[MAIL CRITICAL ERROR] Nie udało się wysłać maila: {e}", exc_info=True)
+
 def send_enhanced_report(task_name, scan_results):
     logger.info(f"[MAIL] Rozpoczynam przygotowanie raportu: {task_name}")
     if not scan_results:
@@ -1172,145 +1319,150 @@ def send_enhanced_report(task_name, scan_results):
         return
 
     try:
-        logger.info("[MAIL] Generuję plik CSV...")
+        # --- CSV ---
         csv_buffer = io.StringIO()
         csv_writer = csv.writer(csv_buffer, delimiter=';', quoting=csv.QUOTE_MINIMAL)
-        csv_writer.writerow(['Produkt', 'SKU', 'Sklep', 'Status', 'Stara Cena', 'Nowa Cena', 'Zmiana', 'Link', 'Info'])
-
-        changes = []
-        errors = []
-
+        csv_writer.writerow(['Produkt', 'SKU', 'Sklep', 'Status', 'Stara Cena', 'Nowa Cena', 'Zmiana %', 'Link'])
         for item in scan_results:
             diff = ""
-            if item.get('old_price') and item.get('new_price'):
-                try:
-                    diff = f"{round(item['new_price'] - item['old_price'], 2)} PLN"
-                except:
-                    diff = ""
-
+            if item.get('old_price') and item.get('new_price') and item['old_price'] > 0:
+                diff = f"{round((item['new_price'] - item['old_price']) / item['old_price'] * 100, 1)}%"
             csv_writer.writerow([
-                item['product'],
-                item['sku'],
-                item['shop'],
+                item['product'], item['sku'], item['shop'],
                 item['status'].upper(),
                 item['old_price'] if item['old_price'] else '',
                 item['new_price'] if item['new_price'] else '',
-                diff,
-                item['url'],
-                item['msg']
+                diff, item['url']
             ])
-
-            if item['status'] == 'change':
-                changes.append(item)
-            elif item['status'] == 'error':
-                errors.append(item)
-
         csv_buffer.seek(0)
 
-        # print("[MAIL] Pobieram URL logo...")
-        # logo_url = "http://127.0.0.1:5000/static/logo.png"
-        # try:
-        #     with app.test_request_context():
-        #         logo_url = url_for('static', filename='logo.png', _external=True)
-        # except:
-        #     pass
+        APP_URL = os.environ.get('APP_URL', 'http://192.168.24.112:5005')
 
-        logger.info("[MAIL] Generuję treść HTML...")
-        html_body = f"""
-        <html>
-        <body style="font-family: Arial, sans-serif; color: #333;">
-            <div style="max-width: 600px; margin: 0 auto; border: 1px solid #ddd; padding: 20px; border-radius: 8px;">
+        # --- GRUPOWANIE PO PRODUKCIE ---
+        # Zbieramy tylko produkty z aktywnością (zmiany lub błędy)
+        products_map = {}
+        for item in scan_results:
+            if item['status'] == 'ok':
+                continue
+            key = item.get('product_id', item['product'])
+            if key not in products_map:
+                products_map[key] = {
+                    'name': item['product'],
+                    'sku': item['sku'],
+                    'product_id': item.get('product_id'),
+                    'project_id': item.get('project_id'),
+                    'rows': []
+                }
+            products_map[key]['rows'].append(item)
 
-                <div style="text-align: center; margin-bottom: 20px;">
-                    <h2 style="margin-top: 10px; color: #000;">Raport Skanowania</h2>
-                    <p style="color: #777; font-size: 14px;">{task_name} | {date.today()}</p>
-                </div>
+        total_changes = sum(1 for i in scan_results if i['status'] == 'change')
+        total_errors = sum(1 for i in scan_results if i['status'] == 'error')
 
-                <div style="display: flex; gap: 10px; margin-bottom: 20px;">
-                    <div style="flex: 1; background: #f8f9fa; padding: 10px; text-align: center; border-radius: 5px;">
-                        <div style="font-size: 24px; font-weight: bold;">{len(scan_results)}</div>
-                        <div style="font-size: 12px; color: #666;">Sprawdzono</div>
-                    </div>
-                    <div style="flex: 1; background: #e8f5e9; padding: 10px; text-align: center; border-radius: 5px;">
-                        <div style="font-size: 24px; font-weight: bold; color: #198754;">{len(changes)}</div>
-                        <div style="font-size: 12px; color: #198754;">Zmiany Cen</div>
-                    </div>
-                    <div style="flex: 1; background: #fce4ec; padding: 10px; text-align: center; border-radius: 5px;">
-                        <div style="font-size: 24px; font-weight: bold; color: #dc3545;">{len(errors)}</div>
-                        <div style="font-size: 12px; color: #dc3545;">Błędy</div>
-                    </div>
-                </div>
+        def pct_val(item):
+            if item.get('old_price') and item['old_price'] > 0 and item.get('new_price'):
+                return (item['new_price'] - item['old_price']) / item['old_price'] * 100
+            return 0
 
-                {'<h3 style="border-bottom: 2px solid #198754; padding-bottom: 5px;">📉 Wykryte Zmiany Cen</h3>' if changes else ''}
-                {'<table style="width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 20px;">' if changes else ''}
-                {'<tr style="background: #f1f1f1; text-align: left;"><th>Produkt</th><th>Sklep</th><th>Cena</th></tr>' if changes else ''}
-        """
+        def price_badge(item):
+            if item['status'] == 'error':
+                return '<span style="color:#dc3545;font-size:12px;">⚠️ Błąd pobierania</span>'
+            pct = pct_val(item)
+            if pct == 0 and item['status'] == 'change':
+                # nowa cena bez historii
+                return f'<span style="font-weight:700;">{item["new_price"]} PLN</span>'
+            color = "#dc3545" if pct > 0 else "#198754"
+            arrow = "▲" if pct > 0 else "▼"
+            sign = "+" if pct > 0 else ""
+            old = f"{item['old_price']} PLN" if item.get('old_price') else "—"
+            new = f"{item['new_price']} PLN" if item.get('new_price') else "—"
+            badge = f'<span style="background:{color};color:white;padding:1px 6px;border-radius:10px;font-size:11px;font-weight:700;">{arrow} {sign}{round(pct,1)}%</span>'
+            return f'<span style="color:#999;">{old}</span> → <span style="font-weight:700;color:{color};">{new}</span> &nbsp;{badge}'
 
-        for item in changes:
-            price_color = "#198754"
-            arrow = "▼"
+        def build_product_block(prod):
+            product_url = f"{APP_URL}/project/{prod['project_id']}/product/{prod['product_id']}" \
+                if prod.get('product_id') and prod.get('project_id') else None
 
-            # Zabezpieczenie przed porównaniem z None
-            if item.get('old_price') is not None and item.get('new_price') is not None:
-                if item['new_price'] > item['old_price']:
-                    price_color = "#dc3545"
-                    arrow = "▲"
-            else:
-                # Jeśli nie ma starej ceny, traktujemy to jako nową cenę (zielony)
-                price_color = "#198754"
-                arrow = ""
+            name_html = f'<a href="{product_url}" style="color:#0d6efd;text-decoration:none;font-weight:700;font-size:14px;">{prod["name"]}</a>' \
+                if product_url else f'<span style="font-weight:700;font-size:14px;">{prod["name"]}</span>'
 
-            html_body += f"""
-            <tr style="border-bottom: 1px solid #eee;">
-                <td style="padding: 8px;"><b>{item['product']}</b><br><span style="color:#777; font-size:11px;">{item['sku']}</span></td>
-                <td style="padding: 8px;">{item['shop']}</td>
-                <td style="padding: 8px; font-weight: bold; color: {price_color};">
-                    {item['old_price'] if item['old_price'] else '-'} &rarr; {item['new_price']} PLN {arrow}
+            rows_html = ""
+            for row in prod['rows']:
+                shop_link = f'<a href="{row["url"]}" style="color:#555;text-decoration:none;">{row["shop"]}</a>'
+                rows_html += f"""
+                <tr style="border-top:1px solid #f5f5f5;">
+                    <td style="padding:8px 12px 8px 24px;font-size:12px;color:#555;width:160px;">{shop_link}</td>
+                    <td style="padding:8px 12px;font-size:13px;">{price_badge(row)}</td>
+                </tr>"""
+
+            return f"""
+            <tr>
+                <td colspan="2" style="padding:14px 12px 4px;">
+                    {name_html}
+                    <span style="color:#aaa;font-size:11px;margin-left:8px;">SKU: {prod['sku'] or '—'}</span>
                 </td>
             </tr>
-            """
+            {rows_html}
+            <tr><td colspan="2" style="padding:4px 0;"></td></tr>"""
 
-        if changes:
-            html_body += "</table>"
+        products_blocks = "".join(build_product_block(p) for p in products_map.values())
 
-        if errors:
-            html_body += '<h3 style="border-bottom: 2px solid #dc3545; padding-bottom: 5px;">⚠️ Problemy z linkami</h3>'
-            html_body += '<table style="width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 20px;">'
-            html_body += '<tr style="background: #f1f1f1; text-align: left;"><th>Produkt</th><th>Sklep</th><th>Błąd</th></tr>'
+        html_body = f"""
+        <html><body style="font-family:Arial,sans-serif;color:#333;margin:0;padding:0;background:#f4f6f8;">
+        <div style="max-width:620px;margin:30px auto;background:white;border-radius:10px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
 
-            for item in errors:
-                html_body += f"""
-                <tr style="border-bottom: 1px solid #eee;">
-                    <td style="padding: 8px;">{item['product']}</td>
-                    <td style="padding: 8px;">{item['shop']}</td>
-                    <td style="padding: 8px; color: #dc3545;">{item['msg']}</td>
-                </tr>
-                """
-            html_body += "</table>"
+            <div style="background:#0d6efd;padding:24px 28px;">
+                <div style="color:white;font-size:20px;font-weight:700;">📊 Raport Cenowy</div>
+                <div style="color:rgba(255,255,255,0.75);font-size:13px;margin-top:4px;">{task_name} &nbsp;·&nbsp; {date.today().strftime('%d.%m.%Y')}</div>
+            </div>
 
-        html_body += f"""
-                <div style="text-align: center; margin-top: 30px; border-top: 1px solid #eee; padding-top: 20px;">
-                    <p style="margin-bottom: 10px;">Pełna lista produktów znajduje się w załączonym pliku <b>raport_skanowania.csv</b></p>
-                    <a href="http://192.168.24.112:5005" style="background-color: #0d6efd; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; font-weight: bold;">Przejdź do Panelu</a>
+            <div style="display:flex;border-bottom:1px solid #eee;">
+                <div style="flex:1;padding:16px;text-align:center;border-right:1px solid #eee;">
+                    <div style="font-size:26px;font-weight:700;">{len(scan_results)}</div>
+                    <div style="font-size:11px;color:#999;text-transform:uppercase;margin-top:2px;">Sprawdzono</div>
+                </div>
+                <div style="flex:1;padding:16px;text-align:center;border-right:1px solid #eee;">
+                    <div style="font-size:26px;font-weight:700;color:#0d6efd;">{len(products_map)}</div>
+                    <div style="font-size:11px;color:#999;text-transform:uppercase;margin-top:2px;">Produkty z aktywnością</div>
+                </div>
+                <div style="flex:1;padding:16px;text-align:center;border-right:1px solid #eee;">
+                    <div style="font-size:26px;font-weight:700;color:#198754;">{total_changes}</div>
+                    <div style="font-size:11px;color:#999;text-transform:uppercase;margin-top:2px;">Zmiany cen</div>
+                </div>
+                <div style="flex:1;padding:16px;text-align:center;">
+                    <div style="font-size:26px;font-weight:700;color:#dc3545;">{total_errors}</div>
+                    <div style="font-size:11px;color:#999;text-transform:uppercase;margin-top:2px;">Błędy</div>
                 </div>
             </div>
-        </body>
-        </html>
+
+            <div style="padding:20px 28px;">
         """
-        logger.info("[MAIL] Łączę z serwerem SMTP...")
+
+        if products_map:
+            html_body += f"""
+                <table style="width:100%;border-collapse:collapse;">
+                    {products_blocks}
+                </table>"""
+        else:
+            html_body += '<div style="text-align:center;padding:30px;color:#999;font-size:14px;">✅ Brak zmian cen — wszystko stabilne.</div>'
+
+        html_body += f"""
+            </div>
+            <div style="background:#f8f9fa;padding:20px 28px;text-align:center;border-top:1px solid #eee;">
+                <p style="margin:0 0 12px;color:#999;font-size:12px;">Pełna lista w załączonym pliku <b>raport_skanowania.csv</b></p>
+                <a href="{APP_URL}" style="background:#0d6efd;color:white;padding:10px 24px;text-decoration:none;border-radius:6px;font-size:13px;font-weight:600;">Przejdź do Panelu →</a>
+            </div>
+        </div>
+        </body></html>"""
+
         recipient = app.config.get('MAIL_RECIPIENT') or app.config['MAIL_DEFAULT_SENDER']
-        try:
-            msg = Message(f"{task_name} - Raport Cenowy", recipients=[recipient])
-            msg.html = html_body
+        msg = Message(f"{task_name} - Raport Cenowy", recipients=[recipient])
+        msg.html = html_body
+        msg.attach("raport_skanowania.csv", "text/csv", csv_buffer.getvalue().encode('utf-8-sig'))
+        mail.send(msg)
+        logger.info("--- [MAIL] Raport wysłany! ---")
 
-            msg.attach("raport_skanowania.csv", "text/csv", csv_buffer.getvalue().encode('utf-8-sig'))
-
-            mail.send(msg)
-            logger.info("--- [MAIL] Raport Enhanced wysłany! ---")
-        except Exception as e:
-            logger.error(f"--- [MAIL ERROR] {e}", exc_info=True)
     except Exception as e:
-        logger.critical(f"[MAIL CRITICAL ERROR] Nie udało się wysłać maila: {e}", exc_info=True)
+        logger.critical(f"[MAIL CRITICAL ERROR] {e}", exc_info=True)
 
 
 @scheduler.task('interval', id='main_scanner_job', seconds=60)
@@ -1381,10 +1533,18 @@ def run_scheduled_scans():
                             new_price = None
                             is_avail = False
 
+                        # result_entry = {
+                        #     'product': product.title, 'shop': mapping.shop.name,
+                        #     'old_price': old_price, 'new_price': new_price,
+                        #     'status': 'ok', 'msg': 'OK', 'sku': product.sku, 'url': mapping.url
+                        # }
+
                         result_entry = {
                             'product': product.title, 'shop': mapping.shop.name,
                             'old_price': old_price, 'new_price': new_price,
-                            'status': 'ok', 'msg': 'OK', 'sku': product.sku, 'url': mapping.url
+                            'status': 'ok', 'msg': 'OK', 'sku': product.sku, 'url': mapping.url,
+                            'product_id': product.id,  # ← nowe
+                            'project_id': task.project_id  # ← nowe
                         }
 
                         if new_price is not None:
@@ -1474,10 +1634,11 @@ def run_all_tasks(project_id):
                         is_avail = False
 
                     result_entry = {
-                        'product': product.title, 'sku': product.sku,
-                        'shop': mapping.shop.name, 'url': mapping.url,
+                        'product': product.title, 'shop': mapping.shop.name,
                         'old_price': old_price, 'new_price': new_price,
-                        'status': 'ok', 'msg': 'OK'
+                        'status': 'ok', 'msg': 'OK', 'sku': product.sku, 'url': mapping.url,
+                        'product_id': product.id,  # ← nowe
+                        'project_id': task.project_id  # ← nowe
                     }
 
                     if new_price is not None:
@@ -1553,10 +1714,11 @@ def run_single_task(project_id, task_id):
                     is_avail = False
 
                 result_entry = {
-                    'product': product.title, 'sku': product.sku,
-                    'shop': mapping.shop.name, 'url': mapping.url,
+                    'product': product.title, 'shop': mapping.shop.name,
                     'old_price': old_price, 'new_price': new_price,
-                    'status': 'ok', 'msg': 'OK'
+                    'status': 'ok', 'msg': 'OK', 'sku': product.sku, 'url': mapping.url,
+                    'product_id': product.id,  # ← nowe
+                    'project_id': task.project_id  # ← nowe
                 }
 
                 if new_price is not None:
