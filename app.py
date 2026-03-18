@@ -9,12 +9,6 @@ import xml.etree.ElementTree as ET
 from flask_apscheduler import APScheduler
 from datetime import datetime, date, timezone
 from scraper import get_current_price, init_batch_session, close_batch_session
-
-try:
-    from zoneinfo import ZoneInfo
-except ImportError:
-    from backports.zoneinfo import ZoneInfo
-
 from flask_admin import Admin, AdminIndexView, expose
 from flask_admin.contrib.sqla import ModelView
 import requests
@@ -26,16 +20,21 @@ import logging
 from logging.handlers import RotatingFileHandler
 from sqlalchemy import func, case
 from dotenv import load_dotenv
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:
+    from backports.zoneinfo import ZoneInfo
+
 
 load_dotenv()
 
 # --- KONFIGURACJA STREFY CZASOWEJ ---
 TIMEZONE = ZoneInfo("Europe/Warsaw")
 
-
 def get_current_time():
     return datetime.now(TIMEZONE)
 
+DAY_MAP = {'mon': 0, 'tue': 1, 'wed': 2, 'thu': 3, 'fri': 4, 'sat': 5, 'sun': 6}
 
 # --- KONFIGURACJA LOGOWANIA ---
 # Ustawiamy RotatingFileHandler: max 1MB na plik, trzymamy 5 ostatnich plików
@@ -1339,8 +1338,15 @@ def run_scheduled_scans():
         for task in tasks:
             if task.last_run_date == today_date:
                 continue
-            if task.run_time == current_time:
-                tasks_to_run.append(task)
+            if task.run_time != current_time:
+                continue
+
+            if task.frequency == 'weekly' and task.days_of_week:
+                allowed_days = [DAY_MAP[d.strip()] for d in task.days_of_week.split(',') if d.strip() in DAY_MAP]
+                if now.weekday() not in allowed_days:
+                    continue
+
+            tasks_to_run.append(task)
 
         if not tasks_to_run:
             return
