@@ -3,6 +3,45 @@
 {% block title %}Harmonogram - {{ project.name }}{% endblock %}
 
 {% block content %}
+
+<style>
+.day-toggle {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    background: #f1f3f5;
+    color: #495057;
+    border: 2px solid transparent;
+    transition: all 0.15s ease;
+    user-select: none;
+}
+.day-toggle:hover {
+    background: #e0e7ff;
+    color: #3b4fd8;
+}
+.day-toggle.active {
+    background: #0d6efd;
+    color: white;
+    border-color: #0a58ca;
+}
+.day-toggle[data-value="5"],
+.day-toggle[data-value="6"] {
+    color: #dc3545;
+}
+.day-toggle[data-value="5"].active,
+.day-toggle[data-value="6"].active {
+    background: #dc3545;
+    border-color: #b02a37;
+    color: white;
+}
+</style>
+
 <div class="d-flex" id="wrapper">
 
     <div id="page-content-wrapper" class="w-100 bg-light p-4">
@@ -48,18 +87,17 @@
                                 </div>
                             </div>
 
-                            <div class="mb-4 p-3 bg-light rounded border" id="daysContainer" style="display: none;">
-                                <label class="form-label fw-bold small mb-2 d-block text-muted">Zaznacz dni tygodnia:</label>
-                                <div class="d-flex flex-wrap gap-2">
-                                    <div class="form-check form-check-inline m-0"><input class="form-check-input" type="checkbox" name="days" value="0" id="d0"><label class="form-check-label ms-1" for="d0">Pn</label></div>
-                                    <div class="form-check form-check-inline m-0"><input class="form-check-input" type="checkbox" name="days" value="1" id="d1"><label class="form-check-label ms-1" for="d1">Wt</label></div>
-                                    <div class="form-check form-check-inline m-0"><input class="form-check-input" type="checkbox" name="days" value="2" id="d2"><label class="form-check-label ms-1" for="d2">Śr</label></div>
-                                    <div class="form-check form-check-inline m-0"><input class="form-check-input" type="checkbox" name="days" value="3" id="d3"><label class="form-check-label ms-1" for="d3">Cz</label></div>
-                                    <div class="form-check form-check-inline m-0"><input class="form-check-input" type="checkbox" name="days" value="4" id="d4"><label class="form-check-label ms-1" for="d4">Pt</label></div>
-                                    <div class="form-check form-check-inline m-0"><input class="form-check-input" type="checkbox" name="days" value="5" id="d5"><label class="form-check-label ms-1" for="d5">Sb</label></div>
-                                    <div class="form-check form-check-inline m-0"><input class="form-check-input" type="checkbox" name="days" value="6" id="d6"><label class="form-check-label ms-1 text-danger" for="d6">Nd</label></div>
-                                </div>
-                            </div>
+<div class="mb-4" id="daysContainer" style="display: none;">
+    <label class="form-label fw-bold small mb-2 d-block text-muted text-uppercase">Dni tygodnia</label>
+    <div class="d-flex gap-2">
+        {% set day_labels = [('0','Pn'), ('1','Wt'), ('2','Śr'), ('3','Cz'), ('4','Pt'), ('5','Sb'), ('6','Nd')] %}
+        {% for val, label in day_labels %}
+        <div class="day-toggle" data-value="{{ val }}" onclick="toggleDay(this)">{{ label }}</div>
+        <input type="checkbox" name="days" value="{{ val }}" id="d{{ val }}" class="d-none" {% if val in ['5','6'] %}data-weekend="true"{% endif %}>
+        {% endfor %}
+    </div>
+    <div class="form-text mt-2">Kliknij dzień, aby go zaznaczyć.</div>
+</div>
 
                             <button type="submit" class="btn btn-primary w-100 py-2">
                                 <i class="bi bi-plus-lg me-2"></i> Zaplanuj Skanowanie
@@ -175,6 +213,13 @@ function toggleDays(show) {
     if (container) {
         container.style.display = show ? 'block' : 'none';
     }
+}
+
+function toggleDay(el) {
+    const val = el.dataset.value;
+    const checkbox = document.getElementById('d' + val);
+    el.classList.toggle('active');
+    checkbox.checked = el.classList.contains('active');
 }
 
 // Funkcja pokazująca/ukrywająca czerwony tekst ostrzegawczy
