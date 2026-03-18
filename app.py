@@ -13,6 +13,7 @@ from flask_admin import Admin, AdminIndexView, expose
 from flask_admin.contrib.sqla import ModelView
 import requests
 import os
+import re
 import json
 import csv
 import io
@@ -215,6 +216,7 @@ class Product(db.Model):
     availability = db.Column(db.String(20), nullable=True)
     brand_id = db.Column(db.Integer, db.ForeignKey('brand.id'), nullable=True)
     is_active = db.Column(db.Boolean, default=True, nullable=False)
+    purchase_price = db.Column(db.Float, nullable=True)
     mappings = db.relationship('ProductMapping', backref='product', lazy=True, cascade="all, delete")
 
     @property
@@ -844,6 +846,164 @@ def import_links(project_id):
                 flash(f'Wystąpił błąd podczas przetwarzania pliku: {e}', category='error')
 
     return render_template('import_links.html', project=project)
+
+def import_purchase_prices(file_bytes, filename, project_id):
+    stats = {'updated': 0, 'not_found': 0, 'skipped': 0, 'error': None}
+    try:
+        # Obsługa XLSX i CSV
+        if filename.endswith('.xlsx'):
+            import openpyxl
+            wb = openpyxl.load_workbook(io.BytesIO(file_bytes))
+            ws = wb.active
+
+            # Szukamy kolumn po nagłówku, nie indeksie
+            headers = {}
+            for cell in ws[1]:
+                if cell.value:
+                    headers[str(cell.value).strip()] = cell.column - 1  # 0-based
+
+            sku_col = headers.get('Symbol')
+            price_col = next((v for k, v in headers.items() if 'ostatnia cena zakupu brutto' in k.lower() and 'brutto -' in k.lower()), None)
+
+            if sku_col is None or price_col is None:
+                stats['error'] = f"Nie znaleziono wymaganych kolumn. Znalezione: {list(headers.keys())}"
+                return stats
+
+            rows = list(ws.iter_rows(min_row=2, values_only=True))
+
+        elif filename.endswith('.csv'):
+            decoded = None
+            for enc in ['utf-8', 'windows-1250', 'latin-1']:
+                try:
+                    decoded = file_bytes.decode(enc)
+                    break
+                except UnicodeDecodeError:
+                    continue
+            if not decoded:
+                stats['error'] = "Nie udało się odczytać pliku CSV."
+                return stats
+
+            stream = io.StringIO(decoded)
+            try:
+                dialect = csv.Sniffer().sniff(stream.read(2048))
+                stream.seek(0)
+            except csv.Error:
+                dialect = csv.excel
+                dialect.delimiter = ';'
+                stream.seek(0)
+
+            reader = list(csv.reader(stream, dialect))
+            if not reader:
+                stats['error'] = "Plik jest pusty."
+                return stats
+
+            header_row = reader[0]
+            headers = {str(h).strip(): i for i, h in enumerate(header_row)}
+
+            sku_col = headers.get('Symbol')
+            price_col = next((v for k, v in headers.items() if 'ostatnia cena zakupu brutto' in k.lower() and 'brutto -' in k.lower()), None)
+
+            if sku_col is None or price_col is None:
+                stats['error'] = f"Nie znaleziono wymaganych kolumn. Znalezione: {list(headers.keys())}"
+                return stats
+
+            rows = reader[1:]
+        else:
+            stats['error'] = "Nieobsługiwany format pliku. Użyj .xlsx lub .csv"
+            return stats
+
+        # Pobieramy wszystkie produkty projektu do cache (uppercase SKU)
+        products_cache = {
+            p.sku.strip().upper(): p
+            for p in Product.query.filter_by(project_id=project_id).all()
+            if p.sku
+        }
+
+        for row in rows:
+            try:
+                sku_raw = row[sku_col]
+                price_raw = row[price_col]
+
+                if not sku_raw:
+                    stats['skipped'] += 1
+                    continue
+
+                sku_normalized = str(sku_raw).strip().upper()
+                product = products_cache.get(sku_normalized)
+
+                if not product:
+                    stats['not_found'] += 1
+                    continue
+
+                if price_raw is None or str(price_raw).strip() == '':
+                    stats['skipped'] += 1
+                    continue
+
+                # Parsowanie ceny (obsługa przecinka i kropki)
+                price_str = str(price_raw).replace(' ', '').replace(',', '.')
+                price_str = re.sub(r'[^\d.]', '', price_str)
+                purchase_price = float(price_str)
+
+                if purchase_price <= 0:
+                    stats['skipped'] += 1
+                    continue
+
+                product.purchase_price = purchase_price
+                stats['updated'] += 1
+
+            except (ValueError, IndexError):
+                stats['skipped'] += 1
+                continue
+
+        db.session.commit()
+        logger.info(f"Import cen zakupu: {stats}")
+        return stats
+
+    except Exception as e:
+        logger.error(f"Błąd importu cen zakupu: {e}", exc_info=True)
+        stats['error'] = str(e)
+        return stats
+
+
+@app.route('/project/<int:project_id>/import-purchase-prices', methods=['GET', 'POST'])
+@login_required
+def import_purchase_prices_view(project_id):
+    project = Project.query.get_or_404(project_id)
+    if current_user not in project.users:
+        flash('Brak dostępu.', category='error')
+        return redirect(url_for('projects'))
+
+    if request.method == 'POST':
+        if 'file' not in request.files:
+            flash('Nie wybrano pliku.', category='error')
+            return redirect(request.url)
+
+        file = request.files['file']
+        if file.filename == '':
+            flash('Nie wybrano pliku.', category='error')
+            return redirect(request.url)
+
+        filename = file.filename.lower()
+        if not (filename.endswith('.xlsx') or filename.endswith('.csv')):
+            flash('Obsługiwane formaty: .xlsx, .csv', category='error')
+            return redirect(request.url)
+
+        file_bytes = file.stream.read()
+        result = import_purchase_prices(file_bytes, filename, project_id)
+
+        if result['error']:
+            flash(f"Błąd importu: {result['error']}", category='error')
+        else:
+            msg = f"Zaktualizowano ceny zakupu dla {result['updated']} produktów."
+            if result['not_found'] > 0:
+                msg += f" Nie znaleziono {result['not_found']} SKU."
+            if result['skipped'] > 0:
+                msg += f" Pominięto {result['skipped']} wierszy."
+            flash(msg, category='success')
+
+        return redirect(url_for('project_dashboard', project_id=project_id))
+
+    return render_template('import_purchase_prices.html', project=project)
 
 
 # --- WIDOK SZCZEGÓŁÓW PRODUKTU ---
@@ -1478,7 +1638,7 @@ def run_scheduled_scans():
         today_date = date.today()
 
         # 1. Sprawdzamy, czy trzeba uruchomić automatyczną synchronizację feedów (np. o 04:00)
-        if current_time == "04:00":
+        if current_time == "06:00":
             logger.info("--- [AUTO SYNC] Rozpoczynam automatyczną synchronizację feedów ---")
             projects_with_feed = Project.query.filter(Project.product_feed_url != None).all()
             for proj in projects_with_feed:

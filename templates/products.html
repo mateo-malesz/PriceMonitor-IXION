@@ -60,6 +60,11 @@
                         <i class="bi bi-file-earmark-spreadsheet me-2"></i>Importuj Linki (CSV)
                     </a>
                 </li>
+                <li>
+    <a class="dropdown-item" href="{{ url_for('import_purchase_prices_view', project_id=project.id) }}">
+        <i class="bi bi-cash-coin me-2"></i>Importuj Ceny Zakupu (XLSX/CSV)
+    </a>
+</li>
                 <li><hr class="dropdown-divider"></li>
                 <li>
                     <form method="POST" action="{{ url_for('delete_project', project_id=project.id) }}" onsubmit="return confirm('Czy na pewno chcesz usunąć ten projekt? Tej operacji nie można cofnąć.');" class="d-inline m-0">

@@ -58,17 +58,43 @@
             </div>
 
             <div class="col-md-3 text-md-end mt-4 mt-md-0 d-flex flex-column justify-content-center border-start ps-4 py-3 bg-light rounded-end">
-                <small class="text-muted text-uppercase mb-1 fw-bold ls-1">Twoja cena</small>
-                <div class="display-6 text-success fw-bolder mb-0">
-                    {{ "{:,.2f}".format(product.my_price).replace(',', ' ') if product.my_price else '-' }} <span class="fs-4 text-muted fw-bold">PLN</span>
-                </div>
+    <small class="text-muted text-uppercase mb-1 fw-bold ls-1">Twoja cena</small>
+    <div class="display-6 text-success fw-bolder mb-0">
+        {{ "{:,.2f}".format(product.my_price).replace(',', ' ') if product.my_price else '-' }}
+        <span class="fs-4 text-muted fw-bold">PLN</span>
+    </div>
 
-                {% if product.gtin %}
-                <div class="mt-3 small text-muted border-top pt-2">
-                    EAN: <span class="font-monospace">{{ product.gtin }}</span>
-                </div>
-                {% endif %}
+    {% if product.purchase_price and product.my_price %}
+        {% set margin_pln = product.my_price - product.purchase_price %}
+        {% set margin_pct = (margin_pln / product.my_price) * 100 %}
+        <div class="border-top mt-3 pt-3">
+            <small class="text-muted text-uppercase fw-bold" style="font-size: 0.65rem;">Cena zakupu</small>
+            <div class="fw-bold text-dark">
+                {{ "{:,.2f}".format(product.purchase_price).replace(',', ' ') }} PLN
             </div>
+        </div>
+        <div class="mt-2">
+            <small class="text-muted text-uppercase fw-bold" style="font-size: 0.65rem;">Marża</small>
+            <div class="fw-bold {% if margin_pct >= 20 %}text-success{% elif margin_pct >= 10 %}text-warning{% else %}text-danger{% endif %}">
+                {{ "{:,.2f}".format(margin_pln).replace(',', ' ') }} PLN
+                <span class="fs-6">({{ "{:.1f}".format(margin_pct) }}%)</span>
+            </div>
+        </div>
+    {% elif product.purchase_price %}
+        <div class="border-top mt-3 pt-3">
+            <small class="text-muted text-uppercase fw-bold" style="font-size: 0.65rem;">Cena zakupu</small>
+            <div class="fw-bold text-dark">
+                {{ "{:,.2f}".format(product.purchase_price).replace(',', ' ') }} PLN
+            </div>
+        </div>
+    {% endif %}
+
+    {% if product.gtin %}
+    <div class="mt-3 small text-muted border-top pt-2">
+        EAN: <span class="font-monospace">{{ product.gtin }}</span>
+    </div>
+    {% endif %}
+</div>
         </div>
     </div>
 </div>
