@@ -386,10 +386,15 @@ def import_products_from_xml(url, project_id):
                 if sku_val in existing_products:
                     # Aktualizacja istniejącego produktu
                     product = existing_products[sku_val]
+
+                    # 1. Aktualizacja ceny
                     if product.my_price != price_val:
                         product.my_price = price_val
-                    if not product.brand_id and brand_obj:
-                        product.brand_id = brand_obj.id
+
+                    # 2. Aktualizacja marki (bezlitosne nadpisywanie, jeśli jest różnica)
+                    new_brand_id = brand_obj.id if brand_obj else None
+                    if product.brand_id != new_brand_id:
+                        product.brand_id = new_brand_id
 
                     # Upewniamy się, że produkt jest aktywny (jeśli wrócił z archiwum)
                     if not product.is_active:
