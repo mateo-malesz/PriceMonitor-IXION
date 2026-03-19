@@ -387,14 +387,34 @@ def import_products_from_xml(url, project_id):
                     # Aktualizacja istniejącego produktu
                     product = existing_products[sku_val]
 
-                    # 1. Aktualizacja ceny
+                    # 1. Cena
                     if product.my_price != price_val:
                         product.my_price = price_val
 
-                    # 2. Aktualizacja marki (bezlitosne nadpisywanie, jeśli jest różnica)
+                    # 2. Marka
                     new_brand_id = brand_obj.id if brand_obj else None
                     if product.brand_id != new_brand_id:
                         product.brand_id = new_brand_id
+
+                    # 3. Dostępność
+                    if product.availability != availability:
+                        product.availability = availability
+
+                    # 4. Tytuł (nazwa)
+                    if product.title != title:
+                        product.title = title
+
+                    # 5. Twój link do produktu
+                    if product.my_url != link:
+                        product.my_url = link
+
+                    # 6. Zdjęcie
+                    if product.image_link != image_url:
+                        product.image_link = image_url
+
+                    # 7. Kod GTIN/EAN
+                    if product.gtin != gtin_val:
+                        product.gtin = gtin_val
 
                     # Upewniamy się, że produkt jest aktywny (jeśli wrócił z archiwum)
                     if not product.is_active:
