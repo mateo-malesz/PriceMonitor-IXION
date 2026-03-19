@@ -1,0 +1,211 @@
+{% extends 'base.html' %}
+
+{% block title %}Rentowność i Marża - {{ project.name }}{% endblock %}
+
+{% block content %}
+
+{# --- MAKRO DO GENEROWANIA LINKÓW SORTOWANIA --- #}
+{% macro sort_link(column_key, label) %}
+    {% set current_sort = current_filters.sort %}
+    {% set current_order = current_filters.order %}
+    {% set new_order = 'asc' %}
+    {% set icon_class = 'bi bi-arrow-down-up ms-1 small text-muted' %}
+
+    {% if current_sort == column_key %}
+        {% if current_order == 'asc' %}
+            {% set new_order = 'desc' %}
+            {% set icon_class = 'bi bi-arrow-up ms-1 small text-dark' %}
+        {% else %}
+            {% set new_order = 'asc' %}
+            {% set icon_class = 'bi bi-arrow-down ms-1 small text-dark' %}
+        {% endif %}
+    {% endif %}
+
+    <a href="{{ url_for('project_margin', project_id=project.id, sort=column_key, order=new_order, q=current_filters.q, brand=current_filters.brand) }}"
+       class="text-decoration-none text-dark fw-bold d-block" style="font-size: 0.9rem;">
+        {{ label }} <i class="{{ icon_class }}" style="font-size: 0.7rem;"></i>
+    </a>
+{% endmacro %}
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h2 class="fw-bold">Rentowność i Marża</h2>
+        <p class="text-muted">Analiza produktów z uzupełnioną ceną zakupu. Wyników: {{ pagination.total }}</p>
+    </div>
+    <div>
+        <a href="{{ url_for('import_purchase_prices_view', project_id=project.id) }}" class="btn btn-outline-primary">
+            <i class="bi bi-cash-coin me-2"></i>Aktualizuj Ceny Zakupu
+        </a>
+    </div>
+</div>
+
+<div class="card shadow-sm border-0 mb-4">
+    <div class="card-body p-3">
+        <form method="GET" action="{{ url_for('project_margin', project_id=project.id) }}" class="row g-3 align-items-center">
+            
+            <input type="hidden" name="sort" value="{{ current_filters.sort }}">
+            <input type="hidden" name="order" value="{{ current_filters.order }}">
+
+            <div class="col-md-5">
+                <div class="input-group">
+                    <span class="input-group-text bg-white text-muted border-end-0"><i class="bi bi-search"></i></span>
+                    <input type="text" name="q" class="form-control border-start-0 ps-0"
+                           placeholder="Szukaj po nazwie lub SKU..."
+                           value="{{ current_filters.q }}">
+                </div>
+            </div>
+
+            <div class="col-md-4">
+                <select name="brand" class="form-select text-muted">
+                    <option value="">Wszystkie Marki</option>
+                    {% for brand in available_brands %}
+                        <option value="{{ brand.id }}" {% if current_filters.brand|int == brand.id %}selected{% endif %}>
+                            {{ brand.name }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="col-md-3 d-flex justify-content-end gap-2">
+                <button type="submit" class="btn btn-primary w-100"><i class="bi bi-funnel me-1"></i> Filtruj</button>
+                {% if current_filters.q or current_filters.brand %}
+                    <a href="{{ url_for('project_margin', project_id=project.id) }}" class="btn btn-outline-secondary" title="Wyczyść filtry">
+                        <i class="bi bi-x-lg"></i>
+                    </a>
+                {% endif %}
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="card border-0 shadow-sm mb-4">
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="bg-light">
+                    <tr>
+                        <th class="ps-4 w-25">{{ sort_link('title', 'Produkt') }}</th>
+                        <th>Marka / SKU</th>
+                        <th class="text-end">Cena Zakupu</th>
+                        <th class="text-end">Twoja Cena</th>
+                        <th class="text-end">{{ sort_link('margin_pln', 'Marża (PLN)') }}</th>
+                        <th class="text-center">{{ sort_link('margin_pct', 'Marża (%)') }}</th>
+                        <th class="text-end pe-4">Pozycja vs Rynek</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in analyzed_products %}
+                    {% set p = item.product %}
+                    <tr>
+                        <td class="ps-4 position-relative">
+                            <div class="d-flex align-items-center">
+                                {% if p.image_link %}
+                                    <img src="{{ p.image_link }}" alt="img" class="rounded border me-3" style="width: 48px; height: 48px; object-fit: contain; background: #fff;">
+                                {% else %}
+                                    <div class="rounded border me-3 d-flex align-items-center justify-content-center bg-light text-muted" style="width: 48px; height: 48px;">
+                                        <i class="bi bi-box-seam"></i>
+                                    </div>
+                                {% endif %}
+                                <div>
+                                    <div class="fw-bold" style="font-size: 0.9rem;">
+                                        <a href="{{ url_for('product_details', project_id=project.id, product_id=p.id) }}" class="text-decoration-none text-dark stretched-link">
+                                            {{ p.title }}
+                                        </a>
+                                    </div>
+                                    {% if p.my_url %}
+                                    <a href="{{ p.my_url }}" target="_blank" class="small text-muted text-decoration-none position-relative" style="z-index: 2;">
+                                        <i class="bi bi-link-45deg"></i> Sklep własny
+                                    </a>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </td>
+
+                        <td>
+                            <div style="font-size: 0.85rem;" class="fw-bold text-dark">{{ p.brand.name if p.brand else '-' }}</div>
+                            <div class="text-muted font-monospace" style="font-size: 0.75rem;">{{ p.sku or '-' }}</div>
+                        </td>
+
+                        <td class="text-end text-muted" style="font-size: 0.9rem;">
+                            {{ "{:,.2f}".format(p.purchase_price).replace(',', ' ') }} PLN
+                        </td>
+
+                        <td class="text-end fw-bold" style="font-size: 0.9rem;">
+                            {{ "{:,.2f}".format(p.my_price).replace(',', ' ') }} PLN
+                        </td>
+
+                        <td class="text-end" style="font-size: 0.9rem;">
+                            {% if item.margin_pln > 0 %}
+                                <span class="text-success fw-bold">+{{ "{:,.2f}".format(item.margin_pln).replace(',', ' ') }}</span>
+                            {% elif item.margin_pln < 0 %}
+                                <span class="text-danger fw-bold">{{ "{:,.2f}".format(item.margin_pln).replace(',', ' ') }}</span>
+                            {% else %}
+                                <span class="text-secondary fw-bold">0.00</span>
+                            {% endif %}
+                        </td>
+
+                        <td class="text-center">
+                            {% if item.margin_pct <= 0 %}
+                                <span class="badge bg-danger" style="font-size: 0.85rem;">{{ item.margin_pct|round(1) }}%</span>
+                            {% elif item.margin_pct < 10 %}
+                                <span class="badge bg-warning text-dark" style="font-size: 0.85rem;">{{ item.margin_pct|round(1) }}%</span>
+                            {% else %}
+                                <span class="badge bg-success" style="font-size: 0.85rem;">{{ item.margin_pct|round(1) }}%</span>
+                            {% endif %}
+                        </td>
+
+                        <td class="text-end pe-4">
+                            {% if item.min_market_price %}
+                                {% set diff = p.my_price - item.min_market_price %}
+                                {% if diff < 0 %}
+                                    <span class="text-success fw-bold" style="font-size: 0.85rem;"><i class="bi bi-trophy-fill me-1"></i> Najtańszy</span><br>
+                                    <span class="text-muted" style="font-size: 0.75rem;">Zapas: {{ (item.min_market_price - p.my_price)|round(2) }} PLN</span>
+                                {% elif diff > 0 %}
+                                    <span class="text-danger fw-bold" style="font-size: 0.85rem;"><i class="bi bi-arrow-up-right me-1"></i> Droższy</span><br>
+                                    <span class="text-muted" style="font-size: 0.75rem;">o {{ diff|round(2) }} PLN od minimum</span>
+                                {% else %}
+                                    <span class="text-warning text-dark fw-bold" style="font-size: 0.85rem;"><i class="bi bi-dash-lg me-1"></i> Remis</span><br>
+                                    <span class="text-muted" style="font-size: 0.75rem;">Równy z minimum</span>
+                                {% endif %}
+                            {% else %}
+                                <span class="badge bg-light text-muted border">Brak monitoringu</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="7" class="text-center py-5 text-muted">
+                            <i class="bi bi-cash-stack display-6 mb-3 d-block"></i>
+                            Brak produktów spełniających kryteria. Upewnij się, że zaimportowałeś ceny zakupu.
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% if pagination.pages > 1 %}
+<nav aria-label="Nawigacja stron" class="mt-4 mb-4">
+    <ul class="pagination justify-content-center">
+        <li class="page-item {% if not pagination.has_prev %}disabled{% endif %}">
+            <a class="page-link" href="{{ url_for('project_margin', project_id=project.id, page=pagination.prev_num, q=current_filters.q, brand=current_filters.brand, sort=current_filters.sort, order=current_filters.order) }}">Poprzednia</a>
+        </li>
+
+        {% for page_num in pagination.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
+            {% if page_num %}
+                <li class="page-item {% if page_num == pagination.page %}active{% endif %}">
+                    <a class="page-link" href="{{ url_for('project_margin', project_id=project.id, page=page_num, q=current_filters.q, brand=current_filters.brand, sort=current_filters.sort, order=current_filters.order) }}">{{ page_num }}</a>
+                </li>
+            {% else %}
+                <li class="page-item disabled"><span class="page-link">...</span></li>
+            {% endif %}
+        {% endfor %}
+
+        <li class="page-item {% if not pagination.has_next %}disabled{% endif %}">
+            <a class="page-link" href="{{ url_for('project_margin', project_id=project.id, page=pagination.next_num, q=current_filters.q, brand=current_filters.brand, sort=current_filters.sort, order=current_filters.order) }}">Następna</a>
+        </li>
+    </ul>
+</nav>
+{% endif %}
+{% endblock %}

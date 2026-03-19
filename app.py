@@ -2161,6 +2161,89 @@ def project_analysis(project_id):
                            threats=threats)
 
 
+@app.route('/project/<int:project_id>/margin')
+@login_required
+def project_margin(project_id):
+    project = Project.query.get_or_404(project_id)
+    if current_user not in project.users:
+        flash('Brak dostępu.', category='error')
+        return redirect(url_for('projects'))
+
+    search_query = request.args.get('q', '')
+    brand_filter = request.args.get('brand', '')
+    sort_by = request.args.get('sort', 'margin_pct')
+    sort_order = request.args.get('order', 'asc')
+    page = request.args.get('page', 1, type=int)  # Pobieramy numer strony
+
+    # Zabezpieczenie: bierzemy produkty z ceną, omijamy my_price <= 0 (żeby nie dzielić przez zero przy procentach)
+    query = Product.query.filter(
+        Product.project_id == project.id,
+        Product.is_active == True,
+        Product.purchase_price != None,
+        Product.my_price != None,
+        Product.my_price > 0
+    )
+
+    if search_query:
+        query = query.filter(
+            (Product.title.ilike(f'%{search_query}%')) |
+            (Product.sku.ilike(f'%{search_query}%'))
+        )
+
+    if brand_filter and brand_filter.isdigit():
+        query = query.filter_by(brand_id=int(brand_filter))
+
+    # --- Sortowanie na poziomie Bazy Danych ---
+    margin_expr = Product.my_price - Product.purchase_price
+    margin_pct_expr = (Product.my_price - Product.purchase_price) / Product.my_price
+
+    if sort_by == 'margin_pln':
+        query = query.order_by(margin_expr.desc() if sort_order == 'desc' else margin_expr.asc())
+    elif sort_by == 'margin_pct':
+        query = query.order_by(margin_pct_expr.desc() if sort_order == 'desc' else margin_pct_expr.asc())
+    elif sort_by == 'title':
+        query = query.order_by(Product.title.desc() if sort_order == 'desc' else Product.title.asc())
+
+    # --- Paginacja ---
+    pagination = query.paginate(page=page, per_page=20, error_out=False)
+    products = pagination.items
+
+    analyzed_products = []
+    for p in products:
+        margin_pln = p.my_price - p.purchase_price
+        margin_pct = (margin_pln / p.my_price * 100)
+
+        min_market_price = None
+        active_mappings = [m for m in p.mappings if
+                           m.is_active and m.last_price and (not p.my_url or m.url.strip() != p.my_url.strip())]
+        if active_mappings:
+            min_market_price = min([m.last_price for m in active_mappings])
+
+        analyzed_products.append({
+            'product': p,
+            'margin_pln': margin_pln,
+            'margin_pct': margin_pct,
+            'min_market_price': min_market_price
+        })
+
+    available_brands = db.session.query(Brand).join(Product).filter(
+        Product.project_id == project.id,
+        Product.is_active == True,
+        Product.purchase_price != None
+    ).distinct().order_by(Brand.name).all()
+
+    return render_template('margin_analysis.html',
+                           project=project,
+                           analyzed_products=analyzed_products,
+                           pagination=pagination,  # Przekazujemy paginację do widoku
+                           available_brands=available_brands,
+                           current_filters={
+                               'q': search_query,
+                               'brand': brand_filter,
+                               'sort': sort_by,
+                               'order': sort_order
+                           })
+
 @app.route('/project/<int:project_id>/overview')
 @login_required
 def project_overview(project_id):
