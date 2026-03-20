@@ -92,17 +92,16 @@ def close_batch_session(session):
 
 
 def get_current_price(url, session):
-    """Pobiera cenę używając przekazanej sesji (z proxy zadeklarowanym na początku)."""
+    logger.info(f"[SCAN] START: {url}")
     try:
-        # Losowe opóźnienie, żeby nie zabić serwera sklepu
         time.sleep(random.uniform(0.5, 1.5))
 
         try:
             response = session.get(url, timeout=15)
+            logger.info(f"[SCAN] STATUS: {response.status_code} | {url}")
         except requests.exceptions.RequestException as e:
-            logger.error(f"[!] Błąd połączenia dla {url}: {e}")
+            logger.error(f"[SCAN] BŁĄD POŁĄCZENIA: {e} | {url}")
             return None, False
-
         # Jeśli błędy 400-500 (np. ban 403), używamy Cloudscrapera, zachowując TO SAMO PROXY
         if response.status_code in [404, 410]:
             logger.error(f"[!] Produkt nie istnieje (Błąd {response.status_code}): {url}")
@@ -123,8 +122,13 @@ def get_current_price(url, session):
                 return None, False
 
         if response.status_code != 200:
-            logger.error(f"Ostateczny błąd HTTP: {response.status_code}")
+            logger.error(f"Ostateczny błąd HTTP: {response.status_code} dla {url}")
             return None, False
+
+        if response.status_code == 200:
+            if 'arante.pl' in url:
+                logger.info(
+                    f"[ARANTE] Status 200, długość HTML: {len(response.content)}, tytuł: {BeautifulSoup(response.content, 'html.parser').title}")
 
         # Sprawdź czy mimo 200 dostaliśmy Cloudflare challenge
         if response.status_code == 200:
@@ -295,11 +299,11 @@ def get_current_price(url, session):
                     return None, False
             else:
                 final_price = float(price)
+            logger.info(f"[SCAN] CENA: {final_price} PLN | {url}")
             return final_price, available
         else:
-            logger.warning(f"Nie znaleziono ceny: {url}")
+            logger.warning(f"[SCAN] BRAK CENY | {url}")
             return None, False
-
     except Exception as e:
-        logger.error(f"Wyjątek krytyczny scrapera: {e}")
+        logger.error(f"[SCAN] WYJĄTEK: {e} | {url}")
         return None, False

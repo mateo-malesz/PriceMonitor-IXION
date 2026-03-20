@@ -449,6 +449,40 @@ def import_products_from_xml(url, project_id):
         if project:
             project.last_feed_sync = get_current_time()
 
+        # Tworzymy brakujące mappingi dla własnego sklepu
+        all_products = Product.query.filter(
+            Product.project_id == project_id,
+            Product.my_url != None,
+            Product.is_active == True
+        ).all()
+
+        for product in all_products:
+            clean_url = product.my_url.strip()
+            exists = ProductMapping.query.filter_by(product_id=product.id, url=clean_url).first()
+            if not exists:
+                try:
+                    from urllib.parse import urlparse
+                    domain = urlparse(clean_url).netloc.replace('www.', '')
+                    if not domain:
+                        continue
+                    shop = Shop.query.filter_by(domain=domain).first()
+                    if not shop:
+                        shop = Shop(name=domain.capitalize(), domain=domain)
+                        db.session.add(shop)
+                        db.session.flush()
+                    new_mapping = ProductMapping(
+                        product_id=product.id,
+                        shop_id=shop.id,
+                        url=clean_url,
+                        is_active=True
+                    )
+                    db.session.add(new_mapping)
+                    stats['added_mappings'] = stats.get('added_mappings', 0) + 1
+                    logger.info(f"[MAPPING] Dodano brakujący mapping dla: {product.sku} -> {domain}")
+                except Exception as e:
+                    logger.warning(f"[MAPPING] Błąd tworzenia mappingu dla {product.sku}: {e}")
+                    continue
+
         db.session.commit()
         logger.info(f"Import zakończony. Statystyki: {stats}")
         return stats
@@ -723,9 +757,7 @@ def sync_products(project_id):
     try:
         result = import_products_from_xml(project.product_feed_url, project.id)
         if not result['error']:
-            flash(
-                f"Synchronizacja zakończona. Dodano: {result['added']}, Zaktualizowano: {result['updated']}, Zarchiwizowano: {result['archived']}.",
-                category='success')
+            flash(f"Synchronizacja zakończona. Dodano: {result['added']}, Zaktualizowano: {result['updated']}, Zarchiwizowano: {result['archived']}, Nowych mappingów: {result.get('added_mappings', 0)}.", category='success')
         else:
             flash(f"Wystąpił błąd: {result['error']}", category='error')
     except Exception as e:
@@ -1786,19 +1818,23 @@ def run_scheduled_scans():
             products = query.all()
 
             for product in products:
+                logger.info(f"[SCAN PRODUKT] {product.title} (SKU: {product.sku})")
                 for mapping in product.mappings:
                     if mapping.is_active:
+                        logger.info(f"  -> [{mapping.shop.name}] {mapping.url}")
                         old_price = mapping.last_price
 
-                        logger.info(f"Sprawdzam: {mapping.shop.name} -> {mapping.url[:30]}...")
+                        # logger.info(f"Sprawdzam: {mapping.shop.name} -> {mapping.url[:30]}...")
 
                         try:
                             result = get_current_price(mapping.url, batch_session)
                             if result and isinstance(result, tuple):
                                 new_price, is_avail = result
+                                logger.info(f"  -> WYNIK: {new_price} PLN | dostępny: {is_avail}")
                             else:
                                 new_price = None
                                 is_avail = False
+                                logger.warning(f"  -> WYNIK: brak ceny")
                         except Exception as e:
                             logger.error(f"Error scanning {mapping.url}: {e}")
                             new_price = None
@@ -1888,6 +1924,7 @@ def run_all_tasks(project_id):
         products = query.all()
 
         for product in products:
+            logger.info(f"[SCAN PRODUKT] {product.title} (SKU: {product.sku})")
             for mapping in product.mappings:
                 if mapping.is_active:
                     old_price = mapping.last_price
@@ -1968,17 +2005,21 @@ def run_single_task(project_id, task_id):
     batch_session = init_batch_session()
 
     for product in products:
+        logger.info(f"[SCAN PRODUKT] {product.title} (SKU: {product.sku})")
         for mapping in product.mappings:
             if mapping.is_active:
+                logger.info(f"  -> [{mapping.shop.name}] {mapping.url}")
                 old_price = mapping.last_price
 
                 try:
                     result = get_current_price(mapping.url, batch_session)
                     if result and isinstance(result, tuple):
                         new_price, is_avail = result
+                        logger.info(f"  -> WYNIK: {new_price} PLN | dostępny: {is_avail}")
                     else:
                         new_price = None
                         is_avail = False
+                        logger.warning(f"  -> WYNIK: brak ceny")
                 except Exception as e:
                     logger.warning(f"Error scanning {mapping.url}: {e}")
                     new_price = None
