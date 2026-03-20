@@ -242,6 +242,11 @@ def get_current_price(url, session):
                 if price_element:
                     raw_price = price_element.text.strip()
                     if raw_price: price = raw_price
+            elif 'atabi.pl' in url:
+                elem = soup.find('div', class_='meta-price')
+                if elem and elem.find('span'):
+                    price = elem.find('span').text.strip()
+
 
         # TEKST
         if available:
@@ -253,11 +258,21 @@ def get_current_price(url, session):
                     available = False
                     break
 
-        # WYNIK
+                # WYNIK
         if price:
             if isinstance(price, str):
-                clean_price = price.lower().replace('zł', '').replace('pln', '').replace(' ', '').replace(',', '.')
+                 # Usuwamy waluty i twarde spacje (\xa0)
+                clean_price = price.lower().replace('zł', '').replace('pln', '').replace(' ', '').replace(
+                            '\xa0', '')
+
+                # Jeśli w cenie jest przecinek dziesiętny, kropka to na 99% separator tysięcy
+                if ',' in clean_price:
+                    clean_price = clean_price.replace('.', '')  # Usuwamy kropkę tysięcy (10.599,00 -> 10599,00)
+                    clean_price = clean_price.replace(',',
+                                                              '.')  # Zamieniamy przecinek na kropkę (10599,00 -> 10599.00)
+
                 clean_price = re.sub(r'[^\d.]', '', clean_price)
+
                 try:
                     final_price = float(clean_price)
                 except ValueError:
