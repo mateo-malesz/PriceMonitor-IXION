@@ -126,6 +126,22 @@ def get_current_price(url, session):
             logger.error(f"Ostateczny błąd HTTP: {response.status_code}")
             return None, False
 
+        # Sprawdź czy mimo 200 dostaliśmy Cloudflare challenge
+        if response.status_code == 200:
+            if 'cloudflare' in response.text.lower() and 'challenge' in response.text.lower():
+                logger.warning(f"[!] Cloudflare challenge wykryty dla {url}, przełączam na Cloudscraper...")
+                scraper = cloudscraper.create_scraper(
+                    browser={'browser': 'chrome', 'platform': 'windows', 'desktop': True}
+                )
+                scraper.headers.update(session.headers)
+                scraper.proxies.update(session.proxies)
+                time.sleep(2)
+                try:
+                    response = scraper.get(url, timeout=20)
+                except requests.exceptions.RequestException as e:
+                    logger.error(f"[!] Cloudscraper błąd: {e}")
+                    return None, False
+
         # --- PARSOWANIE ---
         soup = BeautifulSoup(response.content, 'html.parser')
         price = None
