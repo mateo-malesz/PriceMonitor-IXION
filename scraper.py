@@ -35,7 +35,7 @@ NORD_SERVERS = [
 def init_batch_session():
     """Tworzy sesję na start paczki skanowania. Maksymalnie 3 próby połączenia z proxy."""
     session = requests.Session()
-    retries = Retry(total=3, backoff_factor=0.5, status_forcelist=[500, 502, 503, 504])
+    retries = Retry(total=3, backoff_factor=0.5, status_forcelist=[500, 502, 504])
     adapter = HTTPAdapter(max_retries=retries)
     session.mount('http://', adapter)
     session.mount('https://', adapter)
