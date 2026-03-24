@@ -10,8 +10,11 @@ import cloudscraper
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 import logging
+import socket
+import concurrent.futures
 
 logger = logging.getLogger(__name__)
+socket.setdefaulttimeout(30)
 
 # Lista User-Agentów do rotacji
 USER_AGENTS = [
@@ -31,6 +34,22 @@ NORD_SERVERS = [
     'stockholm.se.socks.nordhold.net:1080'
 ]
 
+def fetch_with_hard_timeout(func, url, timeout_sec=25):
+    """
+    Uruchamia zapytanie w osobnym wątku. Jeśli nie skończy się w podanym czasie,
+    porzuca wątek bez czekania na jego zamknięcie i wyrzuca błąd.
+    """
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    future = executor.submit(func, url, timeout=(10, 15))
+    try:
+        # Czekamy na wynik maksymalnie timeout_sec sekund
+        result = future.result(timeout=timeout_sec)
+        executor.shutdown(wait=False)  # Zamykamy czysto, jeśli się udało
+        return result
+    except concurrent.futures.TimeoutError:
+        # Brutalnie porzucamy wiszący wątek - NIE CZEKAMY
+        executor.shutdown(wait=False, cancel_futures=True)
+        raise Exception(f"Twardy timeout! Serwer zablokował wątek na {timeout_sec} sekund.")
 
 def init_batch_session():
     """Tworzy sesję na start paczki skanowania. Maksymalnie 3 próby połączenia z proxy."""
@@ -97,9 +116,10 @@ def get_current_price(url, session):
         time.sleep(random.uniform(0.5, 1.5))
 
         try:
-            response = session.get(url, timeout=15)
+            # Używamy naszego strażnika dla zwykłej sesji
+            response = fetch_with_hard_timeout(session.get, url, timeout_sec=25)
             logger.info(f"[SCAN] STATUS: {response.status_code} | {url}")
-        except requests.exceptions.RequestException as e:
+        except Exception as e:
             logger.error(f"[SCAN] BŁĄD POŁĄCZENIA: {e} | {url}")
             return None, False
         # Jeśli błędy 400-500 (np. ban 403), używamy Cloudscrapera, zachowując TO SAMO PROXY
@@ -116,8 +136,9 @@ def get_current_price(url, session):
             scraper.proxies.update(session.proxies)  # Przepisujemy to samo proxy do scrapera
 
             try:
-                response = scraper.get(url, timeout=20)
-            except requests.exceptions.RequestException as e:
+                # Używamy naszego strażnika również dla cloudscrapera
+                response = fetch_with_hard_timeout(scraper.get, url, timeout_sec=30)
+            except Exception as e:
                 logger.error(f"[!] Cloudscraper też wyrzucił błąd: {e}")
                 return None, False
 
@@ -141,8 +162,8 @@ def get_current_price(url, session):
                 scraper.proxies.update(session.proxies)
                 time.sleep(2)
                 try:
-                    response = scraper.get(url, timeout=20)
-                except requests.exceptions.RequestException as e:
+                    response = fetch_with_hard_timeout(scraper.get, url, timeout_sec=30)
+                except Exception as e:
                     logger.error(f"[!] Cloudscraper błąd: {e}")
                     return None, False
 
