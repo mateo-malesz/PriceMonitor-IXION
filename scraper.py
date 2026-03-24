@@ -252,6 +252,56 @@ def get_current_price(url, session):
                             raw_price = edumax_elem.text.strip()
                         if raw_price:
                             price = raw_price
+            elif 'rehazakupy.pl' in url:
+                elems = soup.find_all('span', attrs={'data-type': 'product-price'})
+                for elem in elems:
+                    classes = elem.get('class', [])
+                    if 'hide' not in classes:
+                        price = elem.get_text().strip()
+                        break
+            elif 'phuimpuls.pl' in url:
+                elem = soup.find('strong', id='priceValue')
+                if elem:
+                    price = elem.get_text().strip()
+            elif 'edukacyjna.pl' in url:
+                elem = soup.find('span', class_='current-price-value')
+                if elem:
+                    price = elem.get('content') or elem.get_text().strip()
+            elif 'czytam.pl' in url:
+                elem = soup.find('div', class_='product-single-price')
+                if elem:
+                    price = elem.get_text().strip()
+            elif 'medicon.pl' in url:
+                low = soup.find('span', itemprop='lowprice')
+                if low:
+                    price = low.get_text().strip()
+            elif 'lumen.pl' in url:
+                elem = soup.find('span', class_='price_view_span')
+                if elem:
+                    part1 = elem.find('span', class_='price_1_pinfo')
+                    part2 = elem.find('span', class_='price_2_pinfo')
+                    if part1 and part2:
+                        price = part1.get_text().replace(',', '') + '.' + part2.get_text()
+            elif 'empik.com' in url:
+                section = soup.find('section', attrs={'data-product-price': True})
+                if section:
+                    price = section.get('data-product-price')
+            elif 'kaufland.pl' in url:
+                elem = soup.find('span', attrs={'data-test': 'product-price'})
+                if elem:
+                    aria = elem.get('aria-label', '')
+                    if aria:
+                        price = aria.replace('Cena:', '').strip()
+                    else:
+                        price = elem.get_text().strip()
+            elif 'zegarki-diament.pl' in url:
+                elem = soup.find('div', class_='price')
+                if elem and elem.find('span'):
+                    price = elem.find('span').get_text().strip()
+            elif 'ksiazki-medyczne.eu' in url:
+                elem = soup.find('span', id='st_product_options-price-brutto')
+                if elem:
+                    price = elem.get_text().replace('zł', '').strip()
             elif 'pomocedydaktyczne.eu' in url:
                 price_element = soup.find('span', class_='brutto')
                 if price_element:
