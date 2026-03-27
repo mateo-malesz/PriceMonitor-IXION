@@ -309,18 +309,10 @@ def page_not_found(e):
 
 
 # --- FUNKCJE IMPORTU ---
-def import_products_from_xml(url, project_id):
+def parse_google_merchant_format(root, project_id):
     stats = {'added': 0, 'updated': 0, 'archived': 0, 'error': None}
     try:
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
-        response = requests.get(url, headers=headers, timeout=30)
-
-        if response.status_code != 200:
-            logger.error(f"Błąd pobierania XML: {response.status_code}")
-            stats['error'] = f"Błąd HTTP: {response.status_code}"
-            return stats
-
-        root = ET.fromstring(response.content)
+        # Usunięty fragment requests.get, bo plik pobiera nam "rozdzielacz" wyżej
         ns = {'g': 'http://base.google.com/ns/1.0'}
 
         # Pobieramy wszystkie aktywne produkty z bazy dla tego projektu
@@ -491,6 +483,167 @@ def import_products_from_xml(url, project_id):
         stats['error'] = str(e)
         return stats
 
+
+def parse_iof_format(root, project_id):
+    stats = {'added': 0, 'updated': 0, 'archived': 0, 'error': None}
+
+    # Pobieramy istniejące produkty z bazy
+    existing_products = {p.sku: p for p in Product.query.filter_by(project_id=project_id).all()}  #
+    imported_skus = set()
+    brands_cache = {}
+
+    # W IdoSell produkty są w tagu <products><product>
+    products = root.findall('.//product')
+
+    for item in products:
+        # SKU / ID
+        sku_val = item.get('code_on_card')
+        if not sku_val:  # Jeśli nie ma code_on_card, spróbuj wziąć id
+            sku_val = item.get('id')
+
+        if not sku_val:  # Jeśli brakuje obu, pomiń produkt
+            continue
+
+        # Tytuł
+        name_node = item.find('.//description/name')
+        title = name_node.text.strip() if (name_node is not None and name_node.text) else 'Bez nazwy'
+
+        # Link do produktu
+        card_node = item.find('.//card')
+        link = card_node.get('url') if card_node is not None else ''
+
+        # Zdjęcie (pierwsze z listy <large>)
+        image_node = item.find('.//images/large/image')
+        image_url = image_node.get('url') if image_node is not None else None
+
+        # Cena (bierzemy pierwszą napotkaną cenę brutto z tagu <price>)
+        price_node = item.find('.//price')
+        price_val = 0.0
+        if price_node is not None and price_node.get('gross'):
+            try:
+                price_val = float(price_node.get('gross').replace(',', '.'))
+            except ValueError:
+                pass
+
+        # Dostępność z tagu <sizes><size available="...">
+        availability = 'OUT OF STOCK'  # domyślnie
+        size_node = item.find('.//sizes/size')
+
+        if size_node is not None:
+            avail_attr = size_node.get('available')
+
+            # IdoSell ma różne statusy (available, on_order, unavailable itp.)
+            if avail_attr in ['available', 'on_order', 'in_stock']:
+                availability = 'IN STOCK'
+            elif avail_attr == 'unavailable':
+                availability = 'OUT OF STOCK'
+            else:
+                # Jeśli wpadnie jakikolwiek inny status, zapisze jego oryginalną nazwę
+                availability = avail_attr if avail_attr else 'OUT OF STOCK'
+
+        # Marka
+        producer_node = item.find('.//producer')
+        brand_name = producer_node.get('name') if producer_node is not None else None
+        brand_obj = None
+
+        if brand_name:
+            if brand_name in brands_cache:
+                brand_obj = brands_cache[brand_name]
+            else:
+                brand_obj = Brand.query.filter_by(name=brand_name).first()  #
+                if not brand_obj:
+                    brand_obj = Brand(name=brand_name)  #
+                    db.session.add(brand_obj)  # [cite: 1]
+                    db.session.commit()  # [cite: 1]
+                brands_cache[brand_name] = brand_obj
+
+        # --- LOGIKA ZAPISU DO BAZY ---
+        imported_skus.add(sku_val)
+
+        if sku_val in existing_products:
+            # Aktualizacja
+            product = existing_products[sku_val]
+            if product.my_price != price_val: product.my_price = price_val  # [cite: 1]
+            new_brand_id = brand_obj.id if brand_obj else None
+            if product.brand_id != new_brand_id: product.brand_id = new_brand_id  # [cite: 1]
+            if product.availability != availability: product.availability = availability  # [cite: 1]
+            if product.title != title: product.title = title  # [cite: 1]
+            if product.my_url != link: product.my_url = link  # [cite: 1]
+            if product.image_link != image_url: product.image_link = image_url  # [cite: 1]
+            if not product.is_active: product.is_active = True  # [cite: 1]
+            stats['updated'] += 1
+        else:
+            # Dodanie
+            new_product = Product(  # [cite: 1]
+                project_id=project_id, title=title, sku=sku_val, my_price=price_val,  # [cite: 1]
+                my_url=link, image_link=image_url, brand_id=brand_obj.id if brand_obj else None,  # [cite: 1]
+                availability=availability, is_active=True  # [cite: 1]
+            )
+            db.session.add(new_product)  # [cite: 1]
+            stats['added'] += 1
+
+    # Archiwizacja i Mappingi (identycznie jak w Twojej starej funkcji)
+    for sku, product in existing_products.items():
+        if sku not in imported_skus and product.is_active:  # [cite: 1]
+            product.is_active = False  # [cite: 1]
+            stats['archived'] += 1
+
+    # Mappingi
+    all_products = Product.query.filter(Product.project_id == project_id, Product.my_url != None,
+                                        Product.is_active == True).all()  # [cite: 1]
+    for product in all_products:
+        clean_url = product.my_url.strip()  # [cite: 1]
+        exists = ProductMapping.query.filter_by(product_id=product.id, url=clean_url).first()  # [cite: 1]
+        if not exists:
+            try:
+                from urllib.parse import urlparse  # [cite: 1]
+                domain = urlparse(clean_url).netloc.replace('www.', '')  # [cite: 1]
+                if not domain: continue
+                shop = Shop.query.filter_by(domain=domain).first()  # [cite: 1]
+                if not shop:
+                    shop = Shop(name=domain.capitalize(), domain=domain)  # [cite: 1]
+                    db.session.add(shop)  # [cite: 1]
+                    db.session.flush()  # [cite: 1]
+                new_mapping = ProductMapping(product_id=product.id, shop_id=shop.id, url=clean_url,
+                                             is_active=True)  # [cite: 1]
+                db.session.add(new_mapping)  # [cite: 1]
+                stats['added_mappings'] = stats.get('added_mappings', 0) + 1
+            except Exception as e:
+                continue
+
+    project = Project.query.get(project_id)  # [cite: 1]
+    if project: project.last_feed_sync = get_current_time()  # [cite: 1]
+
+    db.session.commit()  # [cite: 1]
+    return stats
+
+def import_products_from_xml(url, project_id):
+    stats = {'added': 0, 'updated': 0, 'archived': 0, 'error': None}
+    try:
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'} #[cite: 1]
+        response = requests.get(url, headers=headers, timeout=30) #[cite: 1]
+
+        if response.status_code != 200: #[cite: 1]
+            logger.error(f"Błąd pobierania XML: {response.status_code}") #[cite: 1]
+            stats['error'] = f"Błąd HTTP: {response.status_code}" #[cite: 1]
+            return stats
+
+        root = ET.fromstring(response.content) #[cite: 1]
+
+        # Tutaj aplikacja decyduje, którego parsera użyć
+        if root.tag == 'offer':
+            # Główny tag w IdoSell to <offer>
+            logger.info("Wykryto format IdoSell (IOF).")
+            return parse_iof_format(root, project_id)
+        else:
+            # Domyślnie zakładamy Google Merchant
+            logger.info("Wykryto format Google Merchant Center.")
+            return parse_google_merchant_format(root, project_id) # Zmień nazwę starej funkcji na tę!
+
+    except Exception as e:
+        logger.critical(f"CRITICAL XML ERROR: {e}", exc_info=True) #[cite: 1]
+        stats['error'] = str(e) #[cite: 1]
+        return stats
 
 # --- ROUTING PROJEKTÓW ---
 @app.route('/projects')
