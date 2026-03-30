@@ -2347,6 +2347,66 @@ def project_margin(project_id):
                                'order': sort_order
                            })
 
+@app.route('/project/<int:project_id>/margin-by-brand')
+@login_required
+def project_margin_by_brand(project_id):
+    project = Project.query.get_or_404(project_id)
+    if current_user not in project.users:
+        flash('Brak dostępu.', category='error')
+        return redirect(url_for('projects'))
+
+    # Pobieranie parametrów z URL (paginacja i sortowanie)
+    page = request.args.get('page', 1, type=int)
+    sort_by = request.args.get('sort', 'avg_pct')
+    sort_order = request.args.get('order', 'desc')
+
+    # Wyrażenia do obliczeń
+    margin_expr = Product.my_price - Product.purchase_price
+    margin_pct_expr = (Product.my_price - Product.purchase_price) / Product.my_price * 100
+
+    # Zmienne agregujące (potrzebne do sortowania po nich)
+    total_products_expr = func.count(Product.id)
+    avg_pct_expr = func.avg(margin_pct_expr)
+    avg_pln_expr = func.avg(margin_expr)
+    below_threshold_expr = func.sum(case((margin_pct_expr < 10, 1), else_=0))
+
+    # Główne zapytanie z grupowaniem
+    query = db.session.query(
+        Brand.name.label('brand_name'),
+        total_products_expr.label('total_products'),
+        avg_pct_expr.label('avg_pct'),
+        avg_pln_expr.label('avg_pln'),
+        below_threshold_expr.label('below_threshold')
+    ).select_from(Product).join(Brand).filter(
+        Product.project_id == project.id,
+        Product.is_active == True,
+        Product.purchase_price != None,
+        Product.my_price != None,
+        Product.my_price > 0
+    ).group_by(Brand.name)
+
+    # Logika sortowania
+    if sort_by == 'brand_name':
+        query = query.order_by(Brand.name.desc() if sort_order == 'desc' else Brand.name.asc())
+    elif sort_by == 'total_products':
+        query = query.order_by(total_products_expr.desc() if sort_order == 'desc' else total_products_expr.asc())
+    elif sort_by == 'avg_pln':
+        query = query.order_by(avg_pln_expr.desc() if sort_order == 'desc' else avg_pln_expr.asc())
+    elif sort_by == 'below_threshold':
+        query = query.order_by(below_threshold_expr.desc() if sort_order == 'desc' else below_threshold_expr.asc())
+    else:  # Domyślnie sortuje po marży procentowej
+        query = query.order_by(avg_pct_expr.desc() if sort_order == 'desc' else avg_pct_expr.asc())
+
+    # Paginacja (domyślnie 20 wyników na stronę)
+    pagination = query.paginate(page=page, per_page=20, error_out=False)
+    brand_stats = pagination.items
+
+    return render_template('margin_by_brand.html',
+                           project=project,
+                           brand_stats=brand_stats,
+                           pagination=pagination,
+                           current_filters={'sort': sort_by, 'order': sort_order})
+
 @app.route('/project/<int:project_id>/overview')
 @login_required
 def project_overview(project_id):

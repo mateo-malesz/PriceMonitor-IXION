@@ -69,12 +69,12 @@
 <li class="nav-item">
     <a href="#analysisSubmenu" data-bs-toggle="collapse"
        class="nav-link link-body-emphasis d-flex align-items-center"
-       aria-expanded="{% if request.endpoint in ['project_analysis', 'project_margin'] %}true{% else %}false{% endif %}">
+       aria-expanded="{% if request.endpoint in ['project_analysis', 'project_margin', 'project_margin_by_brand'] %}true{% else %}false{% endif %}">
         <i class="bi bi-graph-up-arrow me-2"></i>
         Analiza
         <i class="bi bi-chevron-down ms-auto" style="font-size: 0.8rem; transition: transform 0.2s;"></i>
     </a>
-    <div class="collapse {% if request.endpoint in ['project_analysis', 'project_margin'] %}show{% endif %}" id="analysisSubmenu">
+    <div class="collapse {% if request.endpoint in ['project_analysis', 'project_margin', 'project_margin_by_brand'] %}show{% endif %}" id="analysisSubmenu">
         <ul class="nav flex-column ms-3 mt-1 pb-2" style="font-size: 0.9rem;">
             <li>
                 <a href="{{ url_for('project_analysis', project_id=project.id) }}"
@@ -86,6 +86,12 @@
                 <a href="{{ url_for('project_margin', project_id=project.id) }}"
                    class="nav-link {% if request.endpoint == 'project_margin' %}text-primary fw-bold{% else %}text-muted{% endif %} py-1">
                     <i class="bi bi-cash-stack me-2"></i> Rentowność i Marża
+                </a>
+            </li>
+                    <li>
+                <a href="{{ url_for('project_margin_by_brand', project_id=project.id) }}"
+                   class="nav-link {% if request.endpoint == 'project_margin_by_brand' %}text-primary fw-bold{% else %}text-muted{% endif %} py-1">
+                    <i class="bi bi-bar-chart-steps me-2"></i> Marża wg Producenta
                 </a>
             </li>
         </ul>
