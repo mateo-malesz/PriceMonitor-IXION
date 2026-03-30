@@ -2289,6 +2289,23 @@ def project_margin(project_id):
     elif sort_by == 'title':
         query = query.order_by(Product.title.desc() if sort_order == 'desc' else Product.title.asc())
 
+    from sqlalchemy import func as sqlfunc
+
+    margin_expr = Product.my_price - Product.purchase_price
+    margin_pct_expr = (Product.my_price - Product.purchase_price) / Product.my_price * 100
+
+    agg = query.with_entities(
+        sqlfunc.avg(margin_pct_expr).label('avg_pct'),
+        sqlfunc.avg(margin_expr).label('avg_pln'),
+        sqlfunc.count(Product.id).filter(margin_pct_expr < 10).label('below_threshold'),
+    ).first()
+
+    summary = {
+        'avg_pct': round(agg.avg_pct, 1) if agg.avg_pct else 0,
+        'avg_pln': round(agg.avg_pln, 2) if agg.avg_pln else 0,
+        'below_threshold': agg.below_threshold or 0,
+    }
+
     # --- Paginacja ---
     pagination = query.paginate(page=page, per_page=20, error_out=False)
     products = pagination.items
@@ -2322,6 +2339,7 @@ def project_margin(project_id):
                            analyzed_products=analyzed_products,
                            pagination=pagination,  # Przekazujemy paginację do widoku
                            available_brands=available_brands,
+                           summary=summary,
                            current_filters={
                                'q': search_query,
                                'brand': brand_filter,
