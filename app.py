@@ -1828,7 +1828,7 @@ def run_scheduled_scans():
             task_name = f"Raport ({current_time}) - {task_label}"
             scan_results = []
 
-            query = Product.query.filter_by(project_id=task.project_id)
+            query = Product.query.filter_by(project_id=task.project_id, is_active=True)
             if task.brand_id:
                 query = query.filter_by(brand_id=task.brand_id)
             products = query.all()
@@ -1935,7 +1935,7 @@ def run_all_tasks(project_id):
         task_name = f"{task_label} (Wymuszony)"
 
         scan_results = []
-        query = Product.query.filter_by(project_id=task.project_id)
+        query = Product.query.filter_by(project_id=task.project_id, is_active=True)
         if task.brand_id:
             query = query.filter_by(brand_id=task.brand_id)
         products = query.all()
@@ -2015,7 +2015,7 @@ def run_single_task(project_id, task_id):
     task_name = f"{task_label} (Pojedynczy)"
 
     scan_results = []
-    query = Product.query.filter_by(project_id=task.project_id)
+    query = Product.query.filter_by(project_id=task.project_id, is_active=True)
     if task.brand_id:
         query = query.filter_by(brand_id=task.brand_id)
     products = query.all()
