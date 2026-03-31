@@ -1228,7 +1228,7 @@ def import_purchase_prices(file_bytes, filename, project_id):
                 price_str = re.sub(r'[^\d.]', '', price_str)
                 purchase_price = float(price_str)
 
-                if purchase_price <= 0:
+                if purchase_price <= 2:
                     stats['skipped'] += 1
                     continue
 
