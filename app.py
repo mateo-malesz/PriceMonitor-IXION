@@ -21,6 +21,8 @@ import logging
 from logging.handlers import RotatingFileHandler
 from sqlalchemy import func, case
 from dotenv import load_dotenv
+from threading import Thread
+from flask import current_app
 try:
     from zoneinfo import ZoneInfo
 except ImportError:
@@ -217,6 +219,8 @@ class Product(db.Model):
     brand_id = db.Column(db.Integer, db.ForeignKey('brand.id'), nullable=True)
     is_active = db.Column(db.Boolean, default=True, nullable=False)
     purchase_price = db.Column(db.Float, nullable=True)
+    strategic_note = db.Column(db.Text, nullable=True)
+    comments = db.relationship('ProductComment', backref='product', lazy=True, cascade="all, delete-orphan")
     mappings = db.relationship('ProductMapping', backref='product', lazy=True, cascade="all, delete")
 
     @property
@@ -230,6 +234,14 @@ class Product(db.Model):
                 count += 1
         return count
 
+# --- KOMENTARZE PRODUKTU ---
+class ProductComment(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    product_id = db.Column(db.Integer, db.ForeignKey('product.id'), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    content = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime, default=get_current_time)
+    user = db.relationship('User', backref='comments')
 
 # --- MAPPING ---
 class ProductMapping(db.Model):
@@ -2406,6 +2418,72 @@ def project_margin_by_brand(project_id):
                            brand_stats=brand_stats,
                            pagination=pagination,
                            current_filters={'sort': sort_by, 'order': sort_order})
+
+
+def send_async_email(app, msg):
+    with app.app_context():
+        try:
+            mail.send(msg)
+            logger.info("Powiadomienie o komentarzu wysłane.")
+        except Exception as e:
+            logger.error(f"Błąd wysyłania powiadomienia: {e}")
+
+
+@app.route('/project/<int:project_id>/product/<int:product_id>/update-note', methods=['POST'])
+@login_required
+def update_strategic_note(project_id, product_id):
+    product = Product.query.get_or_404(product_id)
+    product.strategic_note = request.form.get('strategic_note')
+    db.session.commit()
+    flash('Zaktualizowano notatkę strategiczną.', 'success')
+    return redirect(url_for('product_details', project_id=project_id, product_id=product_id))
+
+
+@app.route('/project/<int:project_id>/product/<int:product_id>/add-comment', methods=['POST'])
+@login_required
+def add_product_comment(project_id, product_id):
+    product = Product.query.get_or_404(product_id)
+    content = request.form.get('content')
+
+    if content and content.strip():
+        comment = ProductComment(product_id=product.id, user_id=current_user.id, content=content.strip())
+        db.session.add(comment)
+        db.session.commit()
+
+        # Przygotowanie i wysyłka maila w tle
+        APP_URL = os.environ.get('APP_URL', 'http://127.0.0.1:5005')
+        recipient = app.config.get('MAIL_RECIPIENT') or app.config['MAIL_DEFAULT_SENDER']
+        msg = Message(f"Nowy komentarz do: {product.title}", recipients=[recipient])
+
+        product_link = f"{APP_URL}/project/{project_id}/product/{product_id}"
+        msg.html = f"""
+        <div style="font-family: Arial, sans-serif; padding: 20px; background: #f8f9fa;">
+            <div style="background: white; padding: 20px; border-radius: 8px; max-width: 600px; margin: 0 auto;">
+                <h3 style="color: #0d6efd; margin-top: 0;">Nowy komentarz w systemie</h3>
+                <p><strong>Użytkownik:</strong> {current_user.email}</p>
+                <p><strong>Produkt:</strong> {product.title} (SKU: {product.sku})</p>
+                <div style="background: #f1f3f5; padding: 15px; border-left: 4px solid #0d6efd; margin: 15px 0;">
+                    {content.strip()}
+                </div>
+                <a href="{product_link}" style="background: #0d6efd; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block; margin-top: 10px;">Zobacz w aplikacji</a>
+            </div>
+        </div>
+        """
+        Thread(target=send_async_email, args=(app, msg)).start()
+
+        flash('Komentarz dodany.', 'success')
+
+    return redirect(url_for('product_details', project_id=project_id, product_id=product_id))
+
+
+@app.route('/project/<int:project_id>/product/<int:product_id>/delete-comment/<int:comment_id>', methods=['POST'])
+@login_required
+def delete_product_comment(project_id, product_id, comment_id):
+    comment = ProductComment.query.get_or_404(comment_id)
+    db.session.delete(comment)
+    db.session.commit()
+    flash('Komentarz usunięty.', 'success')
+    return redirect(url_for('product_details', project_id=project_id, product_id=product_id))
 
 @app.route('/project/<int:project_id>/overview')
 @login_required

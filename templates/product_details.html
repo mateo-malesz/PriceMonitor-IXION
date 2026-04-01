@@ -58,50 +58,97 @@
             </div>
 
             <div class="col-md-3 text-md-end mt-4 mt-md-0 d-flex flex-column justify-content-center border-start ps-4 py-3 bg-light rounded-end">
-    <small class="text-muted text-uppercase mb-1 fw-bold ls-1">Twoja cena</small>
-    <div class="display-6 text-success fw-bolder mb-0">
-        {{ "{:,.2f}".format(product.my_price).replace(',', ' ') if product.my_price else '-' }}
-        <span class="fs-4 text-muted fw-bold">PLN</span>
-    </div>
+                <small class="text-muted text-uppercase mb-1 fw-bold ls-1">Twoja cena</small>
+                <div class="display-6 text-success fw-bolder mb-0">
+                    {{ "{:,.2f}".format(product.my_price).replace(',', ' ') if product.my_price else '-' }}
+                    <span class="fs-4 text-muted fw-bold">PLN</span>
+                </div>
 
-    {% if product.purchase_price and product.my_price %}
-        {% set margin_pln = product.my_price - product.purchase_price %}
-        {% set margin_pct = (margin_pln / product.my_price) * 100 %}
-        <div class="border-top mt-3 pt-3">
-            <small class="text-muted text-uppercase fw-bold" style="font-size: 0.65rem;">Cena zakupu</small>
-            <div class="fw-bold text-dark">
-                {{ "{:,.2f}".format(product.purchase_price).replace(',', ' ') }} PLN
-            </div>
-        </div>
-        <div class="mt-2">
-            <small class="text-muted text-uppercase fw-bold" style="font-size: 0.65rem;">Marża</small>
-            <div class="fw-bold {% if margin_pct >= 20 %}text-success{% elif margin_pct >= 10 %}text-warning{% else %}text-danger{% endif %}">
-                {{ "{:,.2f}".format(margin_pln).replace(',', ' ') }} PLN
-                <span class="fs-6">({{ "{:.1f}".format(margin_pct) }}%)</span>
-            </div>
-        </div>
-    {% elif product.purchase_price %}
-        <div class="border-top mt-3 pt-3">
-            <small class="text-muted text-uppercase fw-bold" style="font-size: 0.65rem;">Cena zakupu</small>
-            <div class="fw-bold text-dark">
-                {{ "{:,.2f}".format(product.purchase_price).replace(',', ' ') }} PLN
-            </div>
-        </div>
-    {% endif %}
+                {% if product.purchase_price and product.my_price %}
+                    {% set margin_pln = product.my_price - product.purchase_price %}
+                    {% set margin_pct = (margin_pln / product.my_price) * 100 %}
+                    <div class="border-top mt-3 pt-3">
+                        <small class="text-muted text-uppercase fw-bold" style="font-size: 0.65rem;">Cena zakupu</small>
+                        <div class="fw-bold text-dark">
+                            {{ "{:,.2f}".format(product.purchase_price).replace(',', ' ') }} PLN
+                        </div>
+                    </div>
+                    <div class="mt-2">
+                        <small class="text-muted text-uppercase fw-bold" style="font-size: 0.65rem;">Marża</small>
+                        <div class="fw-bold {% if margin_pct >= 20 %}text-success{% elif margin_pct >= 10 %}text-warning{% else %}text-danger{% endif %}">
+                            {{ "{:,.2f}".format(margin_pln).replace(',', ' ') }} PLN
+                            <span class="fs-6">({{ "{:.1f}".format(margin_pct) }}%)</span>
+                        </div>
+                    </div>
+                {% elif product.purchase_price %}
+                    <div class="border-top mt-3 pt-3">
+                        <small class="text-muted text-uppercase fw-bold" style="font-size: 0.65rem;">Cena zakupu</small>
+                        <div class="fw-bold text-dark">
+                            {{ "{:,.2f}".format(product.purchase_price).replace(',', ' ') }} PLN
+                        </div>
+                    </div>
+                {% endif %}
 
-    {% if product.gtin %}
-    <div class="mt-3 small text-muted border-top pt-2">
-        EAN: <span class="font-monospace">{{ product.gtin }}</span>
-    </div>
-    {% endif %}
-</div>
+                {% if product.gtin %}
+                <div class="mt-3 small text-muted border-top pt-2">
+                    EAN: <span class="font-monospace">{{ product.gtin }}</span>
+                </div>
+                {% endif %}
+            </div>
         </div>
     </div>
 </div>
 
 <div class="row">
     <div class="col-lg-8">
-<div class="d-flex justify-content-between align-items-center mb-3">
+
+<!-- NOTATKA STRATEGICZNA -->
+        <div class="card shadow-sm mb-4 rounded-3 border {% if product.strategic_note %}bg-warning bg-opacity-10 border-warning border-opacity-50{% else %}bg-light border-0{% endif %}">
+            <div class="card-body p-3">
+                <div class="d-flex justify-content-between align-items-center">
+                    <h6 class="fw-bold mb-0 small text-uppercase ls-1 {% if product.strategic_note %}text-warning-emphasis{% else %}text-muted{% endif %}">
+                        <i class="bi bi-lightbulb-fill me-1"></i> Notatka strategiczna
+                    </h6>
+                    <div>
+                        {% if product.strategic_note %}
+                            <button class="btn btn-sm btn-link text-muted p-0 text-decoration-none me-3" style="font-size: 0.8rem;" type="button" data-bs-toggle="collapse" data-bs-target="#displayNoteText" aria-expanded="true">
+                                <i class="bi bi-eye"></i> Pokaż / Ukryj
+                            </button>
+                        {% endif %}
+                        <button class="btn btn-sm btn-link text-muted p-0 text-decoration-none" style="font-size: 0.8rem;" type="button" data-bs-toggle="collapse" data-bs-target="#editNoteForm">
+                            <i class="bi bi-pencil-square"></i> Edytuj
+                        </button>
+                    </div>
+                </div>
+
+                <div class="collapse mt-3" id="editNoteForm">
+                    <form method="POST" action="{{ url_for('update_strategic_note', project_id=project.id, product_id=product.id) }}">
+                        <textarea class="form-control border-0 mb-2 bg-white shadow-sm small rounded-3" name="strategic_note" rows="2" placeholder="np. Nie schodzimy poniżej 150 PLN" style="font-size: 0.9rem;">{{ product.strategic_note or '' }}</textarea>
+                        <div class="text-end">
+                            <button type="submit" class="btn btn-sm btn-dark fw-bold">Zapisz</button>
+                        </div>
+                    </form>
+                </div>
+
+                {% if product.strategic_note %}
+                <div class="collapse show mt-2 py-1" id="displayNoteText">
+                    <div class="text-dark" style="font-size: 0.95rem; line-height: 1.5;">
+                        {{ product.strategic_note | replace('\n', '<br>') | safe }}
+                    </div>
+                </div>
+                <script>
+                    document.getElementById('editNoteForm').addEventListener('show.bs.collapse', function () {
+                        var displayNote = document.getElementById('displayNoteText');
+                        if(displayNote && displayNote.classList.contains('show')) {
+                            bootstrap.Collapse.getInstance(displayNote).hide();
+                        }
+                    });
+                </script>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="d-flex justify-content-between align-items-center mb-3">
             <h4 class="fw-bold mb-0">Monitorowana Konkurencja</h4>
             <form method="POST" action="{{ url_for('refresh_prices', project_id=project.id, product_id=product.id) }}">
                 <button type="submit" class="btn btn-outline-primary btn-sm">
@@ -110,137 +157,135 @@
             </form>
         </div>
 
-   <div class="card shadow-sm border-0 mb-4">
-    <div class="table-responsive">
-        <table class="table table-hover align-middle mb-0" id="sortableTable">
-            <thead class="bg-light">
-                <tr>
-                    <th class="ps-4" style="cursor: pointer;" onclick="sortTable(0)">
-                        Sklep <i class="bi bi-arrow-down-up" style="font-size: 0.8rem; color: #aaa;"></i>
-                    </th>
-                    <th style="cursor: pointer;" onclick="sortTable(1)">
-                        Ostatnia cena <i class="bi bi-arrow-down-up" style="font-size: 0.8rem; color: #aaa;"></i>
-                    </th>
-                    <th style="cursor: pointer;" onclick="sortTable(2)">
-                        Różnica <i class="bi bi-arrow-down-up" style="font-size: 0.8rem; color: #aaa;"></i>
-                    </th>
-                    <th style="cursor: pointer;" onclick="sortTable(3)">
-                        Data <i class="bi bi-arrow-down-up" style="font-size: 0.8rem; color: #aaa;"></i>
-                    </th>
-                    <th style="cursor: pointer;" onclick="sortTable(4)">
-                        Dostępność <i class="bi bi-arrow-down-up" style="font-size: 0.8rem; color: #aaa;"></i>
-                    </th>
-                    <th class="text-end pe-4">Akcja</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for mapping in mappings %}
-                {% set is_my_store = (product.my_url and mapping.url == product.my_url) %}
-                <tr {% if is_my_store %}class="table-success fw-bold"{% endif %}>
-                    <td class="ps-4">
-                        <div class="fw-bold">
-                            {{ mapping.shop.name }}
-                            {% if is_my_store %}
-                                <span class="badge bg-success ms-2" style="font-size: 0.6rem;">TWÓJ SKLEP</span>
-                            {% endif %}
-                        </div>
-                        <a href="{{ mapping.url }}" target="_blank" class="small text-muted text-decoration-none d-inline-block text-truncate" style="max-width: 200px;">
-                            {{ mapping.url }} <i class="bi bi-box-arrow-up-right"></i>
-                        </a>
-                    </td>
+        <div class="card shadow-sm border-0 mb-4">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0" id="sortableTable">
+                    <thead class="bg-light">
+                        <tr>
+                            <th class="ps-4" style="cursor: pointer;" onclick="sortTable(0)">
+                                Sklep <i class="bi bi-arrow-down-up" style="font-size: 0.8rem; color: #aaa;"></i>
+                            </th>
+                            <th style="cursor: pointer;" onclick="sortTable(1)">
+                                Ostatnia cena <i class="bi bi-arrow-down-up" style="font-size: 0.8rem; color: #aaa;"></i>
+                            </th>
+                            <th style="cursor: pointer;" onclick="sortTable(2)">
+                                Różnica <i class="bi bi-arrow-down-up" style="font-size: 0.8rem; color: #aaa;"></i>
+                            </th>
+                            <th style="cursor: pointer;" onclick="sortTable(3)">
+                                Data <i class="bi bi-arrow-down-up" style="font-size: 0.8rem; color: #aaa;"></i>
+                            </th>
+                            <th style="cursor: pointer;" onclick="sortTable(4)">
+                                Dostępność <i class="bi bi-arrow-down-up" style="font-size: 0.8rem; color: #aaa;"></i>
+                            </th>
+                            <th class="text-end pe-4">Akcja</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for mapping in mappings %}
+                        {% set is_my_store = (product.my_url and mapping.url == product.my_url) %}
+                        <tr {% if is_my_store %}class="table-success fw-bold"{% endif %}>
+                            <td class="ps-4">
+                                <div class="fw-bold">
+                                    {{ mapping.shop.name }}
+                                    {% if is_my_store %}
+                                        <span class="badge bg-success ms-2" style="font-size: 0.6rem;">TWÓJ SKLEP</span>
+                                    {% endif %}
+                                </div>
+                                <a href="{{ mapping.url }}" target="_blank" class="small text-muted text-decoration-none d-inline-block text-truncate" style="max-width: 200px;">
+                                    {{ mapping.url }} <i class="bi bi-box-arrow-up-right"></i>
+                                </a>
+                            </td>
 
-                    <td data-val="{{ mapping.last_price if mapping.last_price else 0 }}">
-                        {% if mapping.last_price %}
-                            <span class="fw-bold">{{ "%.2f"|format(mapping.last_price) }} PLN</span>
+                            <td data-val="{{ mapping.last_price if mapping.last_price else 0 }}">
+                                {% if mapping.last_price %}
+                                    <span class="fw-bold">{{ "%.2f"|format(mapping.last_price) }} PLN</span>
+                                {% else %}
+                                    <span class="badge bg-secondary">Oczekuje...</span>
+                                {% endif %}
+                            </td>
+
+                            {% set diff_val = (mapping.last_price - product.my_price) if (mapping.last_price and product.my_price) else 0 %}
+                            <td data-val="{{ diff_val }}">
+                                {% if is_my_store %}
+                                    <span class="text-muted small">-</span>
+                                {% elif mapping.last_price and product.my_price %}
+                                    {% set diff = mapping.last_price - product.my_price %}
+                                    {% set perc = (diff / product.my_price) * 100 %}
+
+                                    {% if diff < 0 %}
+                                        <div class="text-danger fw-bold" style="font-size: 0.9rem;">
+                                            {{ "%.2f"|format(diff) }} PLN ▼
+                                        </div>
+                                        <div class="text-danger small" style="font-size: 0.75rem;">
+                                            {{ "%.0f"|format(perc) }}%
+                                        </div>
+                                    {% elif diff > 0 %}
+                                        <div class="text-success fw-bold" style="font-size: 0.9rem;">
+                                            +{{ "%.2f"|format(diff) }} PLN ▲
+                                        </div>
+                                        <div class="text-success small" style="font-size: 0.75rem;">
+                                            +{{ "%.0f"|format(perc) }}%
+                                        </div>
+                                    {% else %}
+                                        <span class="text-muted small">= 0.00</span>
+                                    {% endif %}
+                                {% else %}
+                                    <span class="text-muted small">-</span>
+                                {% endif %}
+                            </td>
+
+                            <td class="small text-muted">
+                                {{ mapping.last_checked_at.strftime('%Y-%m-%d %H:%M') if mapping.last_checked_at else '-' }}
+                            </td>
+
+                            <td>
+                                {% if mapping.last_checked_at %}
+                                    {% if mapping.is_available %}
+                                        <span class="badge bg-success-subtle text-success border border-success-subtle">
+                                            <i class="bi bi-check-circle me-1"></i>Dostępny
+                                        </span>
+                                    {% else %}
+                                        <span class="badge bg-danger-subtle text-danger border border-danger-subtle">
+                                            <i class="bi bi-x-circle me-1"></i>Brak
+                                        </span>
+                                    {% endif %}
+                                {% else %}
+                                    <span class="badge bg-secondary">Oczekuje...</span>
+                                {% endif %}
+                            </td>
+
+                            <td class="text-end pe-4">
+                                {% if not is_my_store %}
+                                <form method="POST"
+                                      action="{{ url_for('delete_mapping', project_id=project.id, mapping_id=mapping.id) }}"
+                                      style="display: inline;"
+                                      onsubmit="return confirm('Czy na pewno chcesz usunąć ten link?');">
+                                    <button type="submit" class="btn btn-sm btn-outline-danger" title="Usuń link">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                </form>
+                                {% endif %}
+                            </td>
+                        </tr>
                         {% else %}
-                            <span class="badge bg-secondary">Oczekuje...</span>
-                        {% endif %}
-                    </td>
-
-                    {% set diff_val = (mapping.last_price - product.my_price) if (mapping.last_price and product.my_price) else 0 %}
-                    <td data-val="{{ diff_val }}">
-                        {% if is_my_store %}
-                            <span class="text-muted small">-</span>
-                        {% elif mapping.last_price and product.my_price %}
-                            {% set diff = mapping.last_price - product.my_price %}
-                            {% set perc = (diff / product.my_price) * 100 %}
-
-                            {% if diff < 0 %}
-                                <div class="text-danger fw-bold" style="font-size: 0.9rem;">
-                                    {{ "%.2f"|format(diff) }} PLN ▼
-                                </div>
-                                <div class="text-danger small" style="font-size: 0.75rem;">
-                                    {{ "%.0f"|format(perc) }}%
-                                </div>
-                            {% elif diff > 0 %}
-                                <div class="text-success fw-bold" style="font-size: 0.9rem;">
-                                    +{{ "%.2f"|format(diff) }} PLN ▲
-                                </div>
-                                <div class="text-success small" style="font-size: 0.75rem;">
-                                    +{{ "%.0f"|format(perc) }}%
-                                </div>
-                            {% else %}
-                                <span class="text-muted small">= 0.00</span>
-                            {% endif %}
-                        {% else %}
-                            <span class="text-muted small">-</span>
-                        {% endif %}
-                    </td>
-
-                    <td class="small text-muted">
-                        {{ mapping.last_checked_at.strftime('%Y-%m-%d %H:%M') if mapping.last_checked_at else '-' }}
-                    </td>
-
-                    <td>
-                        {% if mapping.last_checked_at %}
-                            {% if mapping.is_available %}
-                                <span class="badge bg-success-subtle text-success border border-success-subtle">
-                                    <i class="bi bi-check-circle me-1"></i>Dostępny
-                                </span>
-                            {% else %}
-                                <span class="badge bg-danger-subtle text-danger border border-danger-subtle">
-                                    <i class="bi bi-x-circle me-1"></i>Brak
-                                </span>
-                            {% endif %}
-                        {% else %}
-                            <span class="badge bg-secondary">Oczekuje...</span>
-                        {% endif %}
-                    </td>
-
-                    <td class="text-end pe-4">
-                        {% if not is_my_store %}
-                        <form method="POST"
-                              action="{{ url_for('delete_mapping', project_id=project.id, mapping_id=mapping.id) }}"
-                              style="display: inline;"
-                              onsubmit="return confirm('Czy na pewno chcesz usunąć ten link?');">
-                            <button type="submit" class="btn btn-sm btn-outline-danger" title="Usuń link">
-                                <i class="bi bi-trash"></i>
-                            </button>
-                        </form>
-                        {% endif %}
-                    </td>
-                </tr>
-                {% else %}
-                <tr>
-                    <td colspan="6" class="text-center py-5 text-muted">
-                        <i class="bi bi-search display-6 mb-3 d-block"></i>
-                        Nie dodałeś jeszcze żadnego linku konkurencji.
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-</div>
-
-
+                        <tr>
+                            <td colspan="6" class="text-center py-5 text-muted">
+                                <i class="bi bi-search display-6 mb-3 d-block"></i>
+                                Nie dodałeś jeszcze żadnego linku konkurencji.
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
 
         <div class="card shadow-sm border-0 mb-4">
             <div class="card-header bg-white border-0 py-3">
                 <h5 class="fw-bold mb-0"><i class="bi bi-graph-up me-2"></i>Historia Cen</h5>
             </div>
             <div class="card-body">
-{% if chart_data and chart_data != '[]' %}
+                {% if chart_data and chart_data != '[]' %}
                     <div style="height: 350px; width: 100%;">
                         <canvas id="priceChart"></canvas>
                     </div>
@@ -253,12 +298,13 @@
                 {% endif %}
             </div>
         </div>
-<div class="card shadow-sm border-0 mb-4">
+
+        <div class="card shadow-sm border-0 mb-4">
             <div class="card-header bg-white border-0 py-3">
                 <h5 class="fw-bold mb-0"><i class="bi bi-stoplights me-2"></i>Historia Dostępności</h5>
             </div>
             <div class="card-body">
-{% if avail_data and avail_data != '[]' %}
+                {% if avail_data and avail_data != '[]' %}
                     <div style="height: 120px; width: 100%;"> <canvas id="availChart"></canvas>
                     </div>
                     <div class="alert alert-light border mt-3 mb-0 text-muted small">
@@ -275,35 +321,98 @@
                 {% endif %}
             </div>
         </div>
-
-
-
-
-        </div>
-
+     </div>
+<!-- PRAWA BOCZNA KOLUMNA -->
     <div class="col-lg-4">
-        <div class="card shadow-sm border-0 bg-light sticky-top" style="top: 20px; z-index: 1;">
-            <div class="card-body">
-                <h5 class="fw-bold mb-3">Dodaj Konkurenta</h5>
-                <p class="small text-muted">Wklej link do oferty tego produktu w innym sklepie (np. Allegro, Amazon, Morele).</p>
 
-                <form method="POST" action="{{ url_for('add_competitor_url', project_id=project.id, product_id=product.id) }}">
-                    <div class="mb-3">
-                        <label class="form-label fw-bold small">URL Oferty</label>
-                        <input type="url" name="url" class="form-control" placeholder="https://..." required>
-                    </div>
-                    <div class="d-grid">
-                        <button type="submit" class="btn btn-dark">
-                            <i class="bi bi-plus-lg me-2"></i>Monitoruj
+        <!-- KONTENER STICKY -->
+        <div class="sticky-top" style="top: 20px; z-index: 1;">
+
+            <style>
+                .hover-trash { opacity: 0.3; transition: opacity 0.2s ease-in-out; }
+                .hover-trash:hover { opacity: 1 !important; }
+            </style>
+
+            <!-- DODAJ KONKURENTA -->
+            <div class="card shadow-sm border-0 mb-4 rounded-4 bg-white">
+                <div class="card-body p-4">
+                    <h6 class="fw-bolder mb-1 text-dark">Dodaj Konkurenta</h6>
+                    <p class="text-muted mb-3" style="font-size: 0.8rem;">Wklej link do oferty w innym sklepie (np. Allegro, Amazon).</p>
+
+                    <form method="POST" action="{{ url_for('add_competitor_url', project_id=project.id, product_id=product.id) }}">
+                        <div class="mb-2">
+                            <input type="url" name="url" class="form-control form-control-sm bg-light border-0 py-2 px-3 rounded-3" placeholder="https://..." required>
+                        </div>
+                        <button type="submit" class="btn btn-dark btn-sm w-100 fw-bold py-2 rounded-3">
+                            <i class="bi bi-plus-lg me-1"></i> Monitoruj
                         </button>
-                    </div>
-                </form>
+                    </form>
+                </div>
             </div>
-        </div>
-    </div>
-</div>
 
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+            <!-- KOMENTARZE I LOGI ZESPOŁU -->
+            <div class="card shadow-sm border-0 rounded-4 bg-white">
+                <div class="card-header bg-transparent border-0 pt-4 pb-2 px-4 d-flex align-items-center">
+                    <div class="bg-primary bg-opacity-10 text-primary rounded d-flex align-items-center justify-content-center me-2" style="width: 28px; height: 28px;">
+                        <i class="bi bi-chat-text-fill" style="font-size: 0.85rem;"></i>
+                    </div>
+                    <h6 class="fw-bolder mb-0 text-dark">Komentarze</h6>
+                </div>
+                <div class="card-body p-0">
+
+                    <!-- Formularz dodawania (Styl Pigułki) -->
+                    <div class="px-4 pb-3 pt-2">
+                        <form method="POST" action="{{ url_for('add_product_comment', project_id=project.id, product_id=product.id) }}">
+                            <div class="input-group input-group-sm border rounded-pill p-1 bg-white" style="border-color: #dee2e6;">
+                                <input type="text" name="content" class="form-control border-0 bg-transparent shadow-none ms-2" placeholder="Napisz komentarz..." required autocomplete="off">
+                                <button class="btn btn-primary rounded-pill px-3" type="submit" style="padding-top: 0.35rem; padding-bottom: 0.35rem;">
+                                    <i class="bi bi-send-fill" style="font-size: 0.8rem;"></i>
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+
+                    <!-- Lista komentarzy (Styl Dymków Chatu) -->
+                    <div class="overflow-auto pb-2" style="max-height: 400px;">
+                        {% if product.comments %}
+                            <div class="list-group list-group-flush border-0">
+                                {% for comment in product.comments|sort(attribute='created_at', reverse=true) %}
+                                <div class="list-group-item border-0 py-2 px-4 mb-2 bg-transparent">
+                                    <div class="d-flex align-items-start">
+                                        <img src="{{ comment.user.image_file }}" alt="Avatar" class="rounded-circle shadow-sm me-3 mt-1" style="width: 32px; height: 32px; object-fit: cover; border: 2px solid #fff;">
+
+                                        <!-- Dymek Chatu -->
+                                        <div class="flex-grow-1 bg-light rounded-4 px-3 py-2 position-relative">
+                                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                                <span class="fw-bold text-dark" style="font-size: 0.8rem;">{{ comment.user.email.split('@')[0] }}</span>
+                                                <div class="d-flex align-items-center">
+                                                    <span class="text-muted me-2" style="font-size: 0.65rem;">{{ comment.created_at.strftime('%d.%m.%Y %H:%M') }}</span>
+                                                    <form method="POST" action="{{ url_for('delete_product_comment', project_id=project.id, product_id=product.id, comment_id=comment.id) }}" onsubmit="return confirm('Usunąć ten komentarz?');" class="m-0 p-0">
+                                                        <button type="submit" class="btn btn-link text-danger p-0 m-0 hover-trash" title="Usuń" style="font-size: 0.75rem; text-decoration: none;"><i class="bi bi-trash3-fill"></i></button>
+                                                    </form>
+                                                </div>
+                                            </div>
+                                            <p class="mb-0 text-secondary" style="font-size: 0.85rem; line-height: 1.4;">{{ comment.content }}</p>
+                                        </div>
+
+                                    </div>
+                                </div>
+                                {% endfor %}
+                            </div>
+                        {% else %}
+                            <div class="text-center py-5 text-muted px-4">
+                                <div class="bg-light rounded-circle d-inline-flex align-items-center justify-content-center mb-3" style="width: 60px; height: 60px;">
+                                    <i class="bi bi-chat-square-dots text-muted fs-3"></i>
+                                </div>
+                                <p class="small mb-0 text-muted">Nikt jeszcze nic nie napisał.<br>Dodaj pierwszy komentarz.</p>
+                            </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+        </div> <!-- KONIEC KONTENERA STICKY -->
+    </div> <!-- KONIEC PRAWEJ KOLUMNY --> <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
 
 <script>
