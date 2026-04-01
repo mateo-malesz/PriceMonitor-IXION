@@ -797,10 +797,45 @@ def project_dashboard(project_id):
         else:
             query = query.order_by(stmt.asc())
 
+    elif sort_by == 'price_index':
+        from sqlalchemy import func, or_
+
+        avg_comp_stmt = db.session.query(func.avg(ProductMapping.last_price)).filter(
+            ProductMapping.product_id == Product.id,
+            ProductMapping.is_active == True,
+            ProductMapping.is_available == True,
+            ProductMapping.last_price > 0,
+            or_(Product.my_url == None, ProductMapping.url != Product.my_url),
+            ProductMapping.last_price >= Product.my_price * 0.2,
+            ProductMapping.last_price <= Product.my_price * 5
+        ).correlate(Product).scalar_subquery()
+
+        pi_expr = (avg_comp_stmt / Product.my_price) * 100
+
+        if sort_order == 'desc':
+            query = query.order_by(pi_expr.desc())
+        else:
+            # Trik wypychający wartości puste (NULL) na sam dół przy sortowaniu rosnącym
+            query = query.order_by(pi_expr.is_(None), pi_expr.asc())
+
     # Paginacja
     page = request.args.get('page', 1, type=int)
     pagination = query.paginate(page=page, per_page=20, error_out=False)
     filtered_products = pagination.items
+
+    # --- WYLICZANIE PRICE INDEX DLA WIDOKU LISTY ---
+    for p in filtered_products:
+        p.price_index = None
+        if p.my_price and p.my_price > 0:
+            valid_prices = [
+                m.last_price for m in p.mappings
+                if m.is_active and m.is_available and m.last_price and m.last_price > 0
+                   and (not p.my_url or m.url.strip() != p.my_url.strip())
+                   and (p.my_price * 0.2 <= m.last_price <= p.my_price * 5)  # Odrzucanie anomalii
+            ]
+            if valid_prices:
+                avg_comp = sum(valid_prices) / len(valid_prices)
+                p.price_index = round((avg_comp / p.my_price) * 100, 1)
 
     # Statystyki (liczymy tylko dla AKTYWNYCH produktów)
     all_active_products = Product.query.filter_by(project_id=project.id, is_active=True).all()
@@ -1320,6 +1355,19 @@ def product_details(project_id, product_id):
 
     product = Product.query.get_or_404(product_id)
 
+    # --- WYLICZANIE PRICE INDEX DLA PRODUKTU ---
+    price_index = None
+    if product.my_price and product.my_price > 0:
+        valid_prices = [
+            m.last_price for m in product.mappings
+            if m.is_active and m.is_available and m.last_price and m.last_price > 0
+               and (not product.my_url or m.url.strip() != product.my_url.strip())
+               and (product.my_price * 0.2 <= m.last_price <= product.my_price * 5)  # Odrzucanie anomalii
+        ]
+        if valid_prices:
+            avg_comp = sum(valid_prices) / len(valid_prices)
+            price_index = round((avg_comp / product.my_price) * 100, 1)
+
     if product.my_url:
         clean_my_url = product.my_url.strip()
         existing_mapping = ProductMapping.query.filter_by(product_id=product.id, url=clean_my_url).first()
@@ -1407,6 +1455,7 @@ def product_details(project_id, product_id):
     return render_template('product_details.html',
                            project=project,
                            product=product,
+                           price_index=price_index,
                            chart_data=json.dumps(price_datasets),
                            avail_data=json.dumps(avail_datasets),
                            mappings=sorted_mappings)  # Przekazujemy posortowaną listę
@@ -2233,7 +2282,8 @@ def project_analysis(project_id):
         for m in active_mappings:
             shop_name = m.shop.name
             if shop_name not in competitor_stats:
-                competitor_stats[shop_name] = {'name': shop_name, 'wins': 0, 'losses': 0, 'draws': 0, 'total': 0}
+                competitor_stats[shop_name] = {'id': m.shop.id, 'name': shop_name, 'wins': 0, 'losses': 0, 'draws': 0,
+                                               'total': 0}
 
             stats = competitor_stats[shop_name]
             stats['total'] += 1
@@ -2257,6 +2307,68 @@ def project_analysis(project_id):
                            opportunities=opportunities,
                            threats=threats)
 
+@app.route('/project/<int:project_id>/competitors')
+@login_required
+def competitors_list(project_id):
+    project = Project.query.get_or_404(project_id)
+    if current_user not in project.users:
+        flash('Brak dostępu.', category='error')
+        return redirect(url_for('projects'))
+
+    search_query = request.args.get('q', '')
+    sort_by = request.args.get('sort', 'shared_count')
+    sort_order = request.args.get('order', 'desc')
+    page = request.args.get('page', 1, type=int)
+    view_mode = request.args.get('view', 'grid') # Tryb wyświetlania (grid/list)
+
+    from sqlalchemy import func, case, or_
+
+    pi_expr = (ProductMapping.last_price / Product.my_price) * 100
+    shared_count_expr = func.count(Product.id)
+    avg_pi_expr = func.avg(pi_expr)
+    cheaper_count_expr = func.sum(case((ProductMapping.last_price < Product.my_price, 1), else_=0))
+
+    query = db.session.query(
+        Shop,
+        shared_count_expr.label('shared_count'),
+        avg_pi_expr.label('avg_pi'),
+        cheaper_count_expr.label('cheaper_count')
+    ).select_from(ProductMapping).join(Product).join(Shop).filter(
+        Product.project_id == project.id,
+        Product.is_active == True,
+        Product.my_price > 0,
+        ProductMapping.is_active == True,
+        ProductMapping.is_available == True,
+        ProductMapping.last_price > 0,
+        or_(Product.my_url == None, ProductMapping.url != Product.my_url),
+        ProductMapping.last_price >= Product.my_price * 0.2,
+        ProductMapping.last_price <= Product.my_price * 5
+    )
+
+    if search_query:
+        query = query.filter(
+            or_(Shop.name.ilike(f'%{search_query}%'), Shop.domain.ilike(f'%{search_query}%'))
+        )
+
+    query = query.group_by(Shop.id)
+
+    if sort_by == 'name':
+        query = query.order_by(Shop.name.desc() if sort_order == 'desc' else Shop.name.asc())
+    elif sort_by == 'shared_count':
+        query = query.order_by(shared_count_expr.desc() if sort_order == 'desc' else shared_count_expr.asc())
+    elif sort_by == 'avg_pi':
+        query = query.order_by(avg_pi_expr.desc() if sort_order == 'desc' else avg_pi_expr.asc())
+    elif sort_by == 'cheaper_count':
+        query = query.order_by(cheaper_count_expr.desc() if sort_order == 'desc' else cheaper_count_expr.asc())
+
+    pagination = query.paginate(page=page, per_page=20, error_out=False)
+    competitor_stats = pagination.items
+
+    return render_template('competitors_list.html',
+                           project=project,
+                           competitor_stats=competitor_stats,
+                           pagination=pagination,
+                           current_filters={'q': search_query, 'sort': sort_by, 'order': sort_order, 'view': view_mode})
 
 @app.route('/project/<int:project_id>/margin')
 @login_required
@@ -2270,9 +2382,8 @@ def project_margin(project_id):
     brand_filter = request.args.get('brand', '')
     sort_by = request.args.get('sort', 'margin_pct')
     sort_order = request.args.get('order', 'asc')
-    page = request.args.get('page', 1, type=int)  # Pobieramy numer strony
+    page = request.args.get('page', 1, type=int)
 
-    # Zabezpieczenie: bierzemy produkty z ceną, omijamy my_price <= 0 (żeby nie dzielić przez zero przy procentach)
     query = Product.query.filter(
         Product.project_id == project.id,
         Product.is_active == True,
@@ -2290,6 +2401,7 @@ def project_margin(project_id):
     if brand_filter and brand_filter.isdigit():
         query = query.filter_by(brand_id=int(brand_filter))
 
+    # --- UWAGA: TUTAJ COFAMY WCIĘCIE O JEDEN POZIOM ---
     # --- Sortowanie na poziomie Bazy Danych ---
     margin_expr = Product.my_price - Product.purchase_price
     margin_pct_expr = (Product.my_price - Product.purchase_price) / Product.my_price
@@ -2300,6 +2412,24 @@ def project_margin(project_id):
         query = query.order_by(margin_pct_expr.desc() if sort_order == 'desc' else margin_pct_expr.asc())
     elif sort_by == 'title':
         query = query.order_by(Product.title.desc() if sort_order == 'desc' else Product.title.asc())
+    elif sort_by == 'price_index':
+        from sqlalchemy import func, or_
+        avg_comp_stmt = db.session.query(func.avg(ProductMapping.last_price)).filter(
+            ProductMapping.product_id == Product.id,
+            ProductMapping.is_active == True,
+            ProductMapping.is_available == True,
+            ProductMapping.last_price > 0,
+            or_(Product.my_url == None, ProductMapping.url != Product.my_url),
+            ProductMapping.last_price >= Product.my_price * 0.2,
+            ProductMapping.last_price <= Product.my_price * 5
+        ).correlate(Product).scalar_subquery()
+
+        pi_expr = (avg_comp_stmt / Product.my_price) * 100
+
+        if sort_order == 'desc':
+            query = query.order_by(pi_expr.desc())
+        else:
+            query = query.order_by(pi_expr.is_(None), pi_expr.asc())
 
     from sqlalchemy import func as sqlfunc
 
@@ -2333,11 +2463,22 @@ def project_margin(project_id):
         if active_mappings:
             min_market_price = min([m.last_price for m in active_mappings])
 
+        price_index = None
+        valid_prices = [
+            m.last_price for m in active_mappings
+            if m.is_available and m.last_price > 0
+               and (p.my_price * 0.2 <= m.last_price <= p.my_price * 5)
+        ]
+        if valid_prices:
+            avg_comp = sum(valid_prices) / len(valid_prices)
+            price_index = round((avg_comp / p.my_price) * 100, 1)
+
         analyzed_products.append({
             'product': p,
             'margin_pln': margin_pln,
             'margin_pct': margin_pct,
-            'min_market_price': min_market_price
+            'min_market_price': min_market_price,
+            'price_index': price_index
         })
 
     available_brands = db.session.query(Brand).join(Product).filter(
@@ -2349,7 +2490,7 @@ def project_margin(project_id):
     return render_template('margin_analysis.html',
                            project=project,
                            analyzed_products=analyzed_products,
-                           pagination=pagination,  # Przekazujemy paginację do widoku
+                           pagination=pagination,
                            available_brands=available_brands,
                            summary=summary,
                            current_filters={
@@ -2367,37 +2508,54 @@ def project_margin_by_brand(project_id):
         flash('Brak dostępu.', category='error')
         return redirect(url_for('projects'))
 
-    # Pobieranie parametrów z URL (paginacja i sortowanie)
     page = request.args.get('page', 1, type=int)
     sort_by = request.args.get('sort', 'avg_pct')
     sort_order = request.args.get('order', 'desc')
 
-    # Wyrażenia do obliczeń
+    from sqlalchemy import func, case, or_
+
     margin_expr = Product.my_price - Product.purchase_price
     margin_pct_expr = (Product.my_price - Product.purchase_price) / Product.my_price * 100
 
-    # Zmienne agregujące (potrzebne do sortowania po nich)
     total_products_expr = func.count(Product.id)
     avg_pct_expr = func.avg(margin_pct_expr)
     avg_pln_expr = func.avg(margin_expr)
     below_threshold_expr = func.sum(case((margin_pct_expr < 10, 1), else_=0))
 
-    # Główne zapytanie z grupowaniem
+    # --- SQL dla Price Index Marek ---
+    avg_comp_stmt = db.session.query(func.avg(ProductMapping.last_price)).filter(
+        ProductMapping.product_id == Product.id,
+        ProductMapping.is_active == True,
+        ProductMapping.is_available == True,
+        ProductMapping.last_price > 0,
+        or_(Product.my_url == None, ProductMapping.url != Product.my_url),
+        ProductMapping.last_price >= Product.my_price * 0.2,
+        ProductMapping.last_price <= Product.my_price * 5
+    ).correlate(Product).scalar_subquery()
+
+    # Wyliczamy PI dla produktu, a main query wyliczy z tego średnią (func.avg)
+    avg_pi_expr = func.avg((avg_comp_stmt / Product.my_price) * 100)
+
+# ... (wcześniejsza część funkcji zostaje bez zmian)
+
+    # Dodajemy Brand.id do select_from i group_by
     query = db.session.query(
+        Brand.id.label('brand_id'),
         Brand.name.label('brand_name'),
         total_products_expr.label('total_products'),
         avg_pct_expr.label('avg_pct'),
         avg_pln_expr.label('avg_pln'),
-        below_threshold_expr.label('below_threshold')
+        below_threshold_expr.label('below_threshold'),
+        avg_pi_expr.label('avg_pi')
     ).select_from(Product).join(Brand).filter(
         Product.project_id == project.id,
         Product.is_active == True,
         Product.purchase_price != None,
         Product.my_price != None,
         Product.my_price > 0
-    ).group_by(Brand.name)
+    ).group_by(Brand.id, Brand.name)
 
-    # Logika sortowania
+    # Logika sortowania (zostaje bez zmian)
     if sort_by == 'brand_name':
         query = query.order_by(Brand.name.desc() if sort_order == 'desc' else Brand.name.asc())
     elif sort_by == 'total_products':
@@ -2406,18 +2564,93 @@ def project_margin_by_brand(project_id):
         query = query.order_by(avg_pln_expr.desc() if sort_order == 'desc' else avg_pln_expr.asc())
     elif sort_by == 'below_threshold':
         query = query.order_by(below_threshold_expr.desc() if sort_order == 'desc' else below_threshold_expr.asc())
-    else:  # Domyślnie sortuje po marży procentowej
+    elif sort_by == 'avg_pi':
+        if sort_order == 'desc':
+            query = query.order_by(avg_pi_expr.desc())
+        else:
+            query = query.order_by(avg_pi_expr.is_(None), avg_pi_expr.asc())
+    else:
         query = query.order_by(avg_pct_expr.desc() if sort_order == 'desc' else avg_pct_expr.asc())
 
-    # Paginacja (domyślnie 20 wyników na stronę)
     pagination = query.paginate(page=page, per_page=20, error_out=False)
-    brand_stats = pagination.items
+    brand_stats_raw = pagination.items
+
+    brand_stats = []
+    for stat in brand_stats_raw:
+        brand_stats.append({
+            'brand_id': stat.brand_id, # Wyciągamy wygenerowane ID
+            'brand_name': stat.brand_name,
+            'total_products': stat.total_products,
+            'avg_pct': stat.avg_pct,
+            'avg_pln': stat.avg_pln,
+            'below_threshold': stat.below_threshold,
+            'avg_pi': round(stat.avg_pi, 1) if stat.avg_pi else None
+        })
 
     return render_template('margin_by_brand.html',
                            project=project,
                            brand_stats=brand_stats,
                            pagination=pagination,
                            current_filters={'sort': sort_by, 'order': sort_order})
+
+
+@app.route('/project/<int:project_id>/competitor/<int:shop_id>')
+@login_required
+def competitor_analysis(project_id, shop_id):
+    project = Project.query.get_or_404(project_id)
+    if current_user not in project.users:
+        flash('Brak dostępu.', category='error')
+        return redirect(url_for('projects'))
+
+    shop = Shop.query.get_or_404(shop_id)
+
+    # Szukamy aktywnych powiązań tego sklepu w tym projekcie
+    mappings = ProductMapping.query.join(Product).filter(
+        Product.project_id == project.id,
+        Product.is_active == True,
+        Product.my_price > 0,
+        ProductMapping.shop_id == shop.id,
+        ProductMapping.is_active == True,
+        ProductMapping.is_available == True,
+        ProductMapping.last_price > 0
+    ).all()
+
+    overlap_count = 0
+    pi_list = []
+    conflict_list = []  # Tzw. "Lista zapalna"
+
+    for m in mappings:
+        p = m.product
+        # Filtrujemy anomalie i odrzucamy Twój własny sklep
+        if (not p.my_url or m.url.strip() != p.my_url.strip()) and (p.my_price * 0.2 <= m.last_price <= p.my_price * 5):
+            overlap_count += 1
+
+            # Tutaj liczymy JEGO Price Index (Jego Cena / Twoja Cena * 100)
+            pi = (m.last_price / p.my_price) * 100
+            pi_list.append(pi)
+
+            # Jeśli jego PI < 100, to znaczy, że on jest tańszy od Ciebie
+            if pi < 100:
+                conflict_list.append({
+                    'product': p,
+                    'his_price': m.last_price,
+                    'my_price': p.my_price,
+                    'pi': round(pi, 1),
+                    'diff_pln': round(p.my_price - m.last_price, 2),
+                    'url': m.url
+                })
+
+    avg_pi = round(sum(pi_list) / len(pi_list), 1) if pi_list else None
+
+    # Sortujemy "listę zapalną" od produktów, gdzie podcina nas najmocniej (najniższe PI na górze)
+    conflict_list = sorted(conflict_list, key=lambda x: x['pi'])
+
+    return render_template('competitor_analysis.html',
+                           project=project,
+                           shop=shop,
+                           overlap_count=overlap_count,
+                           avg_pi=avg_pi,
+                           conflict_list=conflict_list)
 
 
 def send_async_email(app, msg):
@@ -2485,6 +2718,39 @@ def delete_product_comment(project_id, product_id, comment_id):
     flash('Komentarz usunięty.', 'success')
     return redirect(url_for('product_details', project_id=project_id, product_id=product_id))
 
+# @app.route('/project/<int:project_id>/overview')
+# @login_required
+# def project_overview(project_id):
+#     project = Project.query.get_or_404(project_id)
+#     if current_user not in project.users:
+#         flash('Brak dostępu.', category='error')
+#         return redirect(url_for('projects'))
+#
+#     today = date.today()
+#
+#     scans_today = db.session.query(PriceHistory).join(ProductMapping).join(Product).filter(
+#         Product.project_id == project.id,
+#         func.date(PriceHistory.scraped_at) == today
+#     ).count()
+#
+#     errors_count = ProductMapping.query.join(Product).filter(
+#         Product.project_id == project.id,
+#         ProductMapping.is_active == True,
+#         (ProductMapping.last_price == None) | (ProductMapping.last_price == 0)
+#     ).count()
+#     recent_activity = db.session.query(PriceHistory).join(ProductMapping).join(Product).join(Shop).filter(
+#         Product.project_id == project.id
+#     ).order_by(PriceHistory.scraped_at.desc()).limit(10).all()
+#
+#     last_scan_time = recent_activity[0].scraped_at if recent_activity else None
+#
+#     return render_template('overview.html',
+#                            project=project,
+#                            scans_today=scans_today,
+#                            errors_count=errors_count,
+#                            recent_activity=recent_activity,
+#                            last_scan_time=last_scan_time)
+
 @app.route('/project/<int:project_id>/overview')
 @login_required
 def project_overview(project_id):
@@ -2505,19 +2771,38 @@ def project_overview(project_id):
         ProductMapping.is_active == True,
         (ProductMapping.last_price == None) | (ProductMapping.last_price == 0)
     ).count()
+
     recent_activity = db.session.query(PriceHistory).join(ProductMapping).join(Product).join(Shop).filter(
         Product.project_id == project.id
     ).order_by(PriceHistory.scraped_at.desc()).limit(10).all()
 
     last_scan_time = recent_activity[0].scraped_at if recent_activity else None
 
+    # --- ETAP 3: GLOBALNY PRICE INDEX ---
+    active_products = Product.query.filter_by(project_id=project.id, is_active=True).all()
+    project_pi_list = []
+
+    for p in active_products:
+        if p.my_price and p.my_price > 0:
+            valid_prices = [
+                m.last_price for m in p.mappings
+                if m.is_active and m.is_available and m.last_price and m.last_price > 0
+                   and (not p.my_url or m.url.strip() != p.my_url.strip())
+                   and (p.my_price * 0.2 <= m.last_price <= p.my_price * 5)
+            ]
+            if valid_prices:
+                avg_comp = sum(valid_prices) / len(valid_prices)
+                project_pi_list.append((avg_comp / p.my_price) * 100)
+
+    global_pi = round(sum(project_pi_list) / len(project_pi_list), 1) if project_pi_list else None
+
     return render_template('overview.html',
                            project=project,
                            scans_today=scans_today,
                            errors_count=errors_count,
                            recent_activity=recent_activity,
-                           last_scan_time=last_scan_time)
-
+                           last_scan_time=last_scan_time,
+                           global_pi=global_pi)
 
 # TWORZENIE ADMINA - inicjalizacja tylko przy pierwszym uruchomieniu
 @app.route('/create-admin')

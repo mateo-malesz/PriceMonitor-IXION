@@ -43,19 +43,24 @@
     <div class="card-body p-0">
         <div class="table-responsive">
             <table class="table table-hover align-middle mb-0">
-                <thead class="bg-light">
+<thead class="bg-light">
                     <tr>
                         <th class="ps-4">{{ sort_link('brand_name', 'Marka') }}</th>
                         <th class="text-center">{{ sort_link('total_products', 'Ilość Produktów') }}</th>
                         <th class="text-end">{{ sort_link('avg_pln', 'Średnia Marża (PLN)') }}</th>
                         <th class="text-center">{{ sort_link('avg_pct', 'Średnia Marża (%)') }}</th>
+                        <th class="text-center">{{ sort_link('avg_pi', 'Średni Price Index') }}</th>
                         <th class="text-center pe-4">{{ sort_link('below_threshold', 'Produkty < 10%') }}</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for stat in brand_stats %}
                     <tr>
-                        <td class="ps-4 fw-bold text-dark">{{ stat.brand_name }}</td>
+                        <td class="ps-4 fw-bold">
+    <a href="{{ url_for('project_dashboard', project_id=project.id, brand=stat.brand_id) }}" class="text-dark text-decoration-none hover-primary d-inline-block">
+        {{ stat.brand_name }} <i class="bi bi-box-arrow-up-right text-muted ms-1" style="font-size: 0.7rem;"></i>
+    </a>
+</td>
                         <td class="text-center text-muted">{{ stat.total_products }}</td>
 
                         <td class="text-end fw-bold" style="font-size: 0.95rem;">
@@ -69,6 +74,26 @@
                                 <span class="badge bg-warning text-dark fs-6">{{ stat.avg_pct|round(1) }}%</span>
                             {% else %}
                                 <span class="badge bg-success fs-6">{{ stat.avg_pct|round(1) }}%</span>
+                            {% endif %}
+                        </td>
+
+                    <td class="text-center">
+                            {% if stat.avg_pi %}
+                                {% if stat.avg_pi > 105 %}
+                                    <span class="badge bg-success-subtle text-success border border-success-subtle px-3 py-2 fs-6">
+                                        <i class="bi bi-graph-up-arrow"></i> {{ stat.avg_pi }}
+                                    </span>
+                                {% elif stat.avg_pi < 95 %}
+                                    <span class="badge bg-danger-subtle text-danger border border-danger-subtle px-3 py-2 fs-6">
+                                        <i class="bi bi-graph-down-arrow"></i> {{ stat.avg_pi }}
+                                    </span>
+                                {% else %}
+                                    <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle px-3 py-2 fs-6">
+                                        <i class="bi bi-dash"></i> {{ stat.avg_pi }}
+                                    </span>
+                                {% endif %}
+                            {% else %}
+                                <span class="text-muted small">-</span>
                             {% endif %}
                         </td>
 

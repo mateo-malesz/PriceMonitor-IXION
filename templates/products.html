@@ -199,6 +199,9 @@
             {{ sort_link('price', 'Twoja Cena') }}
         </th>
         <th class="text-center">
+            {{ sort_link('price_index', 'Price Index') }}
+        </th>
+        <th class="text-center">
             {{ sort_link('status', 'Status') }}
         </th>
         <th class="text-end pe-4">Akcja</th>
@@ -277,6 +280,25 @@
         </div>
     </td>
 
+                        <td class="text-center">
+        {% if product.price_index %}
+            {% if product.price_index > 105 %}
+                <span class="badge bg-success-subtle text-success border border-success-subtle px-2 py-1" title="Jesteś tańszy od średniej rynkowej">
+                    <i class="bi bi-graph-up-arrow"></i> {{ product.price_index }}
+                </span>
+            {% elif product.price_index < 95 %}
+                <span class="badge bg-danger-subtle text-danger border border-danger-subtle px-2 py-1" title="Jesteś droższy od średniej rynkowej">
+                    <i class="bi bi-graph-down-arrow"></i> {{ product.price_index }}
+                </span>
+            {% else %}
+                <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle px-2 py-1" title="Jesteś w cenie rynkowej">
+                    <i class="bi bi-dash"></i> {{ product.price_index }}
+                </span>
+            {% endif %}
+        {% else %}
+            <span class="text-muted small">-</span>
+        {% endif %}
+    </td>
 <td class="text-center">
         {% if product.competitor_count > 0 %}
             <span class="badge bg-success-subtle text-success border border-success-subtle px-2 py-1 rounded-2">

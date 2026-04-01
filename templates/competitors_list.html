@@ -1,0 +1,244 @@
+{% extends 'base.html' %}
+
+{% block title %}Baza Konkurentów - {{ project.name }}{% endblock %}
+
+{% block content %}
+
+{# --- MAKRO DO GENEROWANIA LINKÓW SORTOWANIA W TABELI --- #}
+{% macro sort_link(column_key, label) %}
+    {% set current_sort = current_filters.sort %}
+    {% set current_order = current_filters.order %}
+    {% set new_order = 'asc' %}
+    {% set icon_class = 'bi bi-arrow-down-up ms-1 small text-muted' %}
+
+    {% if current_sort == column_key %}
+        {% if current_order == 'asc' %}
+            {% set new_order = 'desc' %}
+            {% set icon_class = 'bi bi-arrow-up ms-1 text-dark' %}
+        {% else %}
+            {% set new_order = 'asc' %}
+            {% set icon_class = 'bi bi-arrow-down ms-1 text-dark' %}
+        {% endif %}
+    {% endif %}
+
+    <a href="{{ url_for('competitors_list', project_id=project.id, sort=column_key, order=new_order, q=current_filters.q, view=current_filters.view) }}"
+       class="text-decoration-none text-dark fw-bold d-block" style="font-size: 0.9rem;">
+        {{ label }} <i class="{{ icon_class }}" style="font-size: 0.7rem;"></i>
+    </a>
+{% endmacro %}
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h2 class="fw-bold">Baza Konkurentów</h2>
+        <p class="text-muted mb-0">Znaleziono {{ pagination.total }} monitorowanych sklepów.</p>
+    </div>
+</div>
+
+<div class="card shadow-sm border-0 mb-4 rounded-3 bg-light">
+    <div class="card-body p-3 d-flex flex-wrap align-items-center justify-content-between gap-3">
+
+        <form method="GET" action="{{ url_for('competitors_list', project_id=project.id) }}" class="d-flex flex-grow-1 gap-2 align-items-center" style="max-width: 600px;">
+            <input type="hidden" name="sort" value="{{ current_filters.sort }}">
+            <input type="hidden" name="order" value="{{ current_filters.order }}">
+            <input type="hidden" name="view" value="{{ current_filters.view }}">
+
+            <div class="input-group">
+                <span class="input-group-text bg-white text-muted border-end-0"><i class="bi bi-search"></i></span>
+                <input type="text" name="q" class="form-control border-start-0 ps-0"
+                       placeholder="Szukaj po nazwie lub domenie..."
+                       value="{{ current_filters.q }}">
+            </div>
+
+            <button type="submit" class="btn btn-dark px-4 fw-bold">Szukaj</button>
+
+            {% if current_filters.q %}
+                <a href="{{ url_for('competitors_list', project_id=project.id, view=current_filters.view) }}" class="btn btn-outline-secondary px-3" title="Wyczyść filtry">
+                    <i class="bi bi-x-lg"></i>
+                </a>
+            {% endif %}
+        </form>
+
+        <div class="btn-group shadow-sm" role="group">
+            <a href="{{ url_for('competitors_list', project_id=project.id, view='grid', q=current_filters.q, sort=current_filters.sort, order=current_filters.order) }}"
+               class="btn btn-outline-dark {% if current_filters.view != 'list' %}active{% endif %}" title="Widok kafelków">
+                <i class="bi bi-grid-fill"></i>
+            </a>
+            <a href="{{ url_for('competitors_list', project_id=project.id, view='list', q=current_filters.q, sort=current_filters.sort, order=current_filters.order) }}"
+               class="btn btn-outline-dark {% if current_filters.view == 'list' %}active{% endif %}" title="Widok tabeli">
+                <i class="bi bi-list-ul"></i>
+            </a>
+        </div>
+
+    </div>
+</div>
+
+{% if current_filters.view != 'list' %}
+<div class="row g-3">
+    {% for row in competitor_stats %}
+        {% set shop = row[0] %}
+        {% set shared_count = row[1] %}
+        {% set avg_pi = row[2] %}
+        {% set cheaper_count = row[3] %}
+    <div class="col-md-4 col-lg-3">
+        <a href="{{ url_for('competitor_analysis', project_id=project.id, shop_id=shop.id) }}" class="text-decoration-none">
+            <div class="card shadow-sm border-0 h-100 hover-shadow transition rounded-4 bg-white">
+                <div class="card-body text-center p-4">
+<div class="mb-3 d-flex justify-content-center align-items-center" style="height: 50px;">
+                        <img src="https://www.google.com/s2/favicons?domain={{ shop.domain }}&sz=64"
+                             alt="Logo {{ shop.name }}"
+                             class="rounded-circle shadow-sm border border-light"
+                             style="width: 48px; height: 48px; object-fit: contain; background-color: white; padding: 2px;"
+                             onerror="this.outerHTML='<div class=\'bg-dark bg-opacity-10 text-dark rounded-circle d-inline-flex align-items-center justify-content-center\' style=\'width: 50px; height: 50px;\'><i class=\'bi bi-shop fs-4\'></i></div>'">
+                    </div>
+                    <h6 class="fw-bold text-dark mb-1">{{ shop.name }}</h6>
+                    <small class="text-muted d-block mb-3">{{ shop.domain }}</small>
+
+                    <div class="d-flex justify-content-center gap-2 mt-auto">
+                        <span class="badge bg-light text-dark border px-2 py-1" title="Wspólne produkty">
+                            <i class="bi bi-box-seam"></i> {{ shared_count }}
+                        </span>
+                        {% if cheaper_count > 0 %}
+                            <span class="badge bg-danger-subtle text-danger px-2 py-1" title="Produkty na których są tańsi">
+                                <i class="bi bi-fire"></i> {{ cheaper_count }}
+                            </span>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </a>
+    </div>
+    {% else %}
+    <div class="col-12 text-center py-5">
+        <div class="bg-light rounded-circle d-inline-flex align-items-center justify-content-center mb-3" style="width: 60px; height: 60px;">
+            <i class="bi bi-search text-muted fs-3"></i>
+        </div>
+        {% if current_filters.q %}
+            <h6 class="fw-bold text-dark">Brak wyników</h6>
+            <p class="text-muted mb-0">Nie znaleziono sklepu o nazwie "{{ current_filters.q }}".</p>
+        {% else %}
+            <p class="text-muted mb-0">Brak zdefiniowanych konkurentów w tym projekcie.</p>
+        {% endif %}
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+
+{% if current_filters.view == 'list' %}
+<div class="card border-0 shadow-sm mb-4">
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="bg-light">
+                    <tr>
+                        <th class="ps-4 py-3 w-25">{{ sort_link('name', 'Sklep') }}</th>
+                        <th class="text-center py-3">{{ sort_link('shared_count', 'Wspólne Produkty') }}</th>
+                        <th class="text-center py-3">{{ sort_link('avg_pi', 'Średni Price Index') }}</th>
+                        <th class="text-center py-3 pe-4">{{ sort_link('cheaper_count', 'Zagrożenia (On tańszy)') }}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in competitor_stats %}
+                        {% set shop = row[0] %}
+                        {% set shared_count = row[1] %}
+                        {% set avg_pi = row[2] %}
+                        {% set cheaper_count = row[3] %}
+                    <tr>
+                        <td class="ps-4 py-3">
+                            <div class="d-flex align-items-center">
+                                <img src="https://www.google.com/s2/favicons?domain={{ shop.domain }}&sz=64"
+                                     alt="Logo {{ shop.name }}"
+                                     class="rounded-circle shadow-sm border border-light me-3 flex-shrink-0"
+                                     style="width: 36px; height: 36px; object-fit: contain; background-color: white; padding: 2px;"
+                                     onerror="this.outerHTML='<div class=\'bg-dark bg-opacity-10 text-dark rounded-circle d-inline-flex align-items-center justify-content-center me-3 flex-shrink-0\' style=\'width: 36px; height: 36px;\'><i class=\'bi bi-shop small\'></i></div>'">
+
+                                <div>
+                                    <a href="{{ url_for('competitor_analysis', project_id=project.id, shop_id=shop.id) }}" class="fw-bold text-dark text-decoration-none hover-primary d-block mb-1" style="line-height: 1.1;">
+                                        {{ shop.name }}
+                                    </a>
+                                    <a href="https://{{ shop.domain }}" target="_blank" class="text-muted text-decoration-none" style="font-size: 0.75rem;">
+                                        {{ shop.domain }} <i class="bi bi-box-arrow-up-right ms-1" style="font-size: 0.65rem;"></i>
+                                    </a>
+                                </div>
+                            </div>
+                        </td>
+
+                        <td class="text-center text-secondary fw-bold">
+                            {{ shared_count }}
+                        </td>
+
+                        <td class="text-center">
+                            {% if avg_pi %}
+                                {% set pi_rounded = avg_pi|round(1) %}
+                                {% if pi_rounded < 95 %}
+                                    <span class="badge bg-danger-subtle text-danger border border-danger-subtle px-3 py-2 fs-6" title="Grają agresywnie, są średnio tańsi od nas">
+                                        <i class="bi bi-graph-down-arrow"></i> {{ pi_rounded }}
+                                    </span>
+                                {% elif pi_rounded > 105 %}
+                                    <span class="badge bg-success-subtle text-success border border-success-subtle px-3 py-2 fs-6" title="Grają na wysokiej marży, są średnio drożsi">
+                                        <i class="bi bi-graph-up-arrow"></i> {{ pi_rounded }}
+                                    </span>
+                                {% else %}
+                                    <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle px-3 py-2 fs-6" title="Remis cenowy">
+                                        <i class="bi bi-dash"></i> {{ pi_rounded }}
+                                    </span>
+                                {% endif %}
+                            {% else %}
+                                <span class="text-muted small">-</span>
+                            {% endif %}
+                        </td>
+
+                        <td class="text-center pe-4">
+                            {% if cheaper_count > 0 %}
+                                <span class="badge bg-danger rounded-pill px-3 py-2">
+                                    <i class="bi bi-fire me-1"></i> {{ cheaper_count }}
+                                </span>
+                            {% else %}
+                                <span class="badge bg-light text-success border px-3 py-2">
+                                    <i class="bi bi-shield-check me-1"></i> Czysto
+                                </span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="4" class="text-center py-5 text-muted">
+                            <i class="bi bi-search display-6 mb-3 d-block"></i>
+                            {% if current_filters.q %}
+                                Brak wyników dla wyszukiwania "{{ current_filters.q }}".
+                            {% else %}
+                                Brak danych do wyświetlenia. Upewnij się, że dodałeś linki konkurencji do produktów.
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+{% if pagination.pages > 1 %}
+<nav aria-label="Nawigacja stron" class="mt-4 mb-4">
+    <ul class="pagination justify-content-center">
+        <li class="page-item {% if not pagination.has_prev %}disabled{% endif %}">
+            <a class="page-link" href="{{ url_for('competitors_list', project_id=project.id, page=pagination.prev_num, sort=current_filters.sort, order=current_filters.order, q=current_filters.q, view=current_filters.view) }}">Poprzednia</a>
+        </li>
+
+        {% for page_num in pagination.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
+            {% if page_num %}
+                <li class="page-item {% if page_num == pagination.page %}active{% endif %}">
+                    <a class="page-link" href="{{ url_for('competitors_list', project_id=project.id, page=page_num, sort=current_filters.sort, order=current_filters.order, q=current_filters.q, view=current_filters.view) }}">{{ page_num }}</a>
+                </li>
+            {% else %}
+                <li class="page-item disabled"><span class="page-link">...</span></li>
+            {% endif %}
+        {% endfor %}
+
+        <li class="page-item {% if not pagination.has_next %}disabled{% endif %}">
+            <a class="page-link" href="{{ url_for('competitors_list', project_id=project.id, page=pagination.next_num, sort=current_filters.sort, order=current_filters.order, q=current_filters.q, view=current_filters.view) }}">Następna</a>
+        </li>
+    </ul>
+</nav>
+{% endif %}
+{% endblock %}
