@@ -193,8 +193,19 @@ def get_current_price(url, session):
 
                 if offers:
                     offer = offers[0] if isinstance(offers, list) else offers
-                    if 'price' in offer and not price:
-                        price = float(offer['price'])
+
+                    if not price:
+                        # 1. Klasyczny, prosty format
+                        if 'price' in offer:
+                            price = float(offer['price'])
+                        # 2. Format rozszerzony z priceSpecification (jak na kodujmata.pl)
+                        elif 'priceSpecification' in offer:
+                            price_specs = offer['priceSpecification']
+                            # Wyciągamy pierwszy element z listy lub bezpośrednio ze słownika
+                            spec = price_specs[0] if isinstance(price_specs, list) else price_specs
+                            if isinstance(spec, dict) and 'price' in spec:
+                                price = float(spec['price'])
+
                     if 'availability' in offer:
                         avail_url = offer['availability']
                         if 'OutOfStock' in avail_url or 'Discontinued' in avail_url or 'SoldOut' in avail_url:
