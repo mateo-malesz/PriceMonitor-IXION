@@ -798,7 +798,7 @@ def project_dashboard(project_id):
             query = query.order_by(stmt.asc())
 
     elif sort_by == 'price_index':
-        from sqlalchemy import func, or_
+        from sqlalchemy import or_
 
         avg_comp_stmt = db.session.query(func.avg(ProductMapping.last_price)).filter(
             ProductMapping.product_id == Product.id,

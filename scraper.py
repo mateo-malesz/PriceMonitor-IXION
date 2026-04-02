@@ -74,7 +74,7 @@ def init_batch_session():
 
     if not nord_user or not nord_pass:
         logger.warning("[PROXY] Brak danych NordVPN - tryb bezpośredni (bez proxy).")
-        return session
+        raise Exception("Wymagane zmienne środowiskowe NORD_USER i NORD_PASS")
 
     safe_nord_pass = urllib.parse.quote(nord_pass)
 
@@ -93,14 +93,12 @@ def init_batch_session():
                 logger.info(f"[PROXY] Sukces! Połączono. IP widoczne w sieci: {resp.text}")
                 return session  # Zwracamy sprawną sesję
         except requests.exceptions.RequestException as e:
-            print(f"[PROXY] Błąd na próbie {attempt}: {e}")
+            logger.error(f"[PROXY] Błąd na próbie {attempt}: {e}")
             time.sleep(2)  # Czekamy chwilę przed kolejną próbą
 
     # Jeśli pętla dojdzie tutaj, znaczy że 3 próby zawiodły
-    print("[!] Wszystkie 3 próby proxy zawiodły. Skanowanie odbędzie się z Twojego prawdziwego IP.")
-    session.proxies = {}
-    return session
-
+    logger.warning("[!] Wszystkie 3 próby proxy zawiodły. ZATRZYMUJĘ SKANOWANIE.")
+    raise Exception("Nie udało się połączyć z proxy NordVPN. Skanowanie anulowane.")
 
 def close_batch_session(session):
     """Zamyka i czyści sesję."""
@@ -266,13 +264,13 @@ def get_current_price(url, session):
                 elem = soup.find('span', id='st_product_options-price-brutto')
                 if elem: price = elem.get_text().replace('zł', '').replace('*', '').strip()
             elif 'edumax.com.pl' in url:
-                    edumax_elem = soup.find('strong', id='projector_price_value')
-                    if edumax_elem:
-                        raw_price = edumax_elem.get('data-price')
-                        if not raw_price or raw_price.strip() == '':
-                            raw_price = edumax_elem.text.strip()
-                        if raw_price:
-                            price = raw_price
+                edumax_elem = soup.find('strong', id='projector_price_value')
+                if edumax_elem:
+                    raw_price = edumax_elem.get('data-price')
+                    if not raw_price or raw_price.strip() == '':
+                        raw_price = edumax_elem.text.strip()
+                    if raw_price:
+                        price = raw_price
             elif 'rehazakupy.pl' in url:
                 elems = soup.find_all('span', attrs={'data-type': 'product-price'})
                 for elem in elems:
@@ -337,7 +335,22 @@ def get_current_price(url, session):
                 elem = soup.find('div', class_='meta-price')
                 if elem and elem.find('span'):
                     price = elem.find('span').text.strip()
-
+            elif 'autyzm-sklep.pl' in url:
+                elem = soup.find('div', class_='item price')
+                if elem:
+                    price = elem.get_text().strip()
+            elif 'sklep.centrummetodykrakowskiej.pl' in url:
+                elem = soup.find('div', class_='prod-price-item')
+                if elem:
+                    price = elem.get_text().strip()
+            elif 'zabawkipilch.pl' in url:
+                elem = soup.find('div', class_='product_cost')
+                if elem and elem.find('h4'):
+                    price = elem.find('h4').get_text().strip()
+            elif 'pomoceszkolne24.pl' in url:
+                elem = soup.find('div', id='ms-product-sheet-price')
+                if elem and elem.find('ins'):
+                    price = elem.find('ins').get_text().strip()
 
         # TEKST
         if available:
