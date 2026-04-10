@@ -2718,38 +2718,104 @@ def delete_product_comment(project_id, product_id, comment_id):
     flash('Komentarz usunięty.', 'success')
     return redirect(url_for('product_details', project_id=project_id, product_id=product_id))
 
-# @app.route('/project/<int:project_id>/overview')
-# @login_required
-# def project_overview(project_id):
-#     project = Project.query.get_or_404(project_id)
-#     if current_user not in project.users:
-#         flash('Brak dostępu.', category='error')
-#         return redirect(url_for('projects'))
-#
-#     today = date.today()
-#
-#     scans_today = db.session.query(PriceHistory).join(ProductMapping).join(Product).filter(
-#         Product.project_id == project.id,
-#         func.date(PriceHistory.scraped_at) == today
-#     ).count()
-#
-#     errors_count = ProductMapping.query.join(Product).filter(
-#         Product.project_id == project.id,
-#         ProductMapping.is_active == True,
-#         (ProductMapping.last_price == None) | (ProductMapping.last_price == 0)
-#     ).count()
-#     recent_activity = db.session.query(PriceHistory).join(ProductMapping).join(Product).join(Shop).filter(
-#         Product.project_id == project.id
-#     ).order_by(PriceHistory.scraped_at.desc()).limit(10).all()
-#
-#     last_scan_time = recent_activity[0].scraped_at if recent_activity else None
-#
-#     return render_template('overview.html',
-#                            project=project,
-#                            scans_today=scans_today,
-#                            errors_count=errors_count,
-#                            recent_activity=recent_activity,
-#                            last_scan_time=last_scan_time)
+
+@app.route('/project/<int:project_id>/compare')
+@login_required
+def compare_projects(project_id):
+    project1 = Project.query.get_or_404(project_id)
+    if current_user not in project1.users:
+        flash('Brak dostępu.', category='error')
+        return redirect(url_for('projects'))
+
+    # Pobieramy inne projekty użytkownika do listy rozwijanej
+    other_projects = [p for p in current_user.projects if p.id != project1.id]
+
+    target_project_id = request.args.get('target', type=int)
+    project2 = None
+
+    stats = {}
+    conflicts_price = []
+    conflicts_avail = []
+    only_in_p1 = []
+    only_in_p2 = []
+
+    if target_project_id:
+        project2 = Project.query.get_or_404(target_project_id)
+        if current_user not in project2.users:
+            flash('Brak dostępu do projektu docelowego.', category='error')
+            return redirect(url_for('project_dashboard', project_id=project1.id))
+
+        # Pobieramy aktywne produkty z obu projektów
+        p1_prods = Product.query.filter_by(project_id=project1.id, is_active=True).all()
+        p2_prods = Product.query.filter_by(project_id=project2.id, is_active=True).all()
+
+        # Funkcja normalizująca SKU (usuwa białe znaki, robi wielkie litery)
+        def norm_sku(sku):
+            return str(sku).strip().upper() if sku else None
+
+        # Słowniki produktów (SKU -> Obiekt Produktu)
+        p1_dict = {norm_sku(p.sku): p for p in p1_prods if norm_sku(p.sku)}
+        p2_dict = {norm_sku(p.sku): p for p in p2_prods if norm_sku(p.sku)}
+
+        # Zbiory unikalnych SKU
+        p1_skus = set(p1_dict.keys())
+        p2_skus = set(p2_dict.keys())
+
+        # Magia Pythona: przecięcia i różnice zbiorów w locie
+        common_skus = p1_skus.intersection(p2_skus)
+        unique_p1_skus = p1_skus - p2_skus
+        unique_p2_skus = p2_skus - p1_skus
+
+        # Sprawdzamy konflikty tylko dla wspólnych produktów
+        for sku in common_skus:
+            prod1 = p1_dict[sku]
+            prod2 = p2_dict[sku]
+
+            # 1. Analiza cenowa
+            if prod1.my_price != prod2.my_price:
+                diff = (prod1.my_price or 0) - (prod2.my_price or 0)
+                conflicts_price.append({
+                    'sku': sku,
+                    'p1_prod': prod1,
+                    'p2_prod': prod2,
+                    'diff': diff
+                })
+
+            # 2. Analiza magazynowa (ujednolicamy statusy, żeby wyłapać faktyczne różnice)
+            def normalize_status(s):
+                s_str = str(s).upper() if s else ''
+                if any(x in s_str for x in ['IN STOCK', 'DOSTĘPNY', 'AVAILABLE']): return 'IN_STOCK'
+                if any(x in s_str for x in ['OUT OF STOCK', 'NIEDOSTĘPNY']): return 'OUT_OF_STOCK'
+                return 'OTHER'
+
+            if normalize_status(prod1.availability) != normalize_status(prod2.availability):
+                conflicts_avail.append({
+                    'sku': sku,
+                    'p1_prod': prod1,
+                    'p2_prod': prod2
+                })
+
+        # Przepisujemy obiekty dla brakujących
+        for sku in unique_p1_skus: only_in_p1.append(p1_dict[sku])
+        for sku in unique_p2_skus: only_in_p2.append(p2_dict[sku])
+
+        stats = {
+            'common': len(common_skus),
+            'price_conflicts': len(conflicts_price),
+            'avail_conflicts': len(conflicts_avail),
+            'unique_p1': len(unique_p1_skus),
+            'unique_p2': len(unique_p2_skus)
+        }
+
+    return render_template('compare_projects.html',
+                           project=project1,
+                           other_projects=other_projects,
+                           project2=project2,
+                           stats=stats,
+                           conflicts_price=conflicts_price,
+                           conflicts_avail=conflicts_avail,
+                           only_in_p1=only_in_p1,
+                           only_in_p2=only_in_p2)
 
 @app.route('/project/<int:project_id>/overview')
 @login_required
