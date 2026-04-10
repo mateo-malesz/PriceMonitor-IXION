@@ -196,17 +196,27 @@
                         {% for mapping in mappings %}
                         {% set is_my_store = (product.my_url and mapping.url == product.my_url) %}
                         <tr {% if is_my_store %}class="table-success fw-bold"{% endif %}>
-                            <td class="ps-4">
-                                <div class="fw-bold">
-                                    {{ mapping.shop.name }}
-                                    {% if is_my_store %}
-                                        <span class="badge bg-success ms-2" style="font-size: 0.6rem;">TWÓJ SKLEP</span>
-                                    {% endif %}
-                                </div>
-                                <a href="{{ mapping.url }}" target="_blank" class="small text-muted text-decoration-none d-inline-block text-truncate" style="max-width: 200px;">
-                                    {{ mapping.url }} <i class="bi bi-box-arrow-up-right"></i>
-                                </a>
-                            </td>
+<td class="ps-4">
+    <div class="d-flex align-items-center">
+        <img src="https://www.google.com/s2/favicons?domain={{ mapping.shop.domain }}&sz=64"
+             alt="Logo {{ mapping.shop.name }}"
+             class="rounded-circle shadow-sm border border-light me-3 flex-shrink-0"
+             style="width: 32px; height: 32px; object-fit: contain; background-color: white; padding: 2px;"
+             onerror="this.outerHTML='<div class=\'bg-dark bg-opacity-10 text-dark rounded-circle d-inline-flex align-items-center justify-content-center me-3 flex-shrink-0\' style=\'width: 32px; height: 32px;\'><i class=\'bi bi-shop small\'></i></div>'">
+
+        <div>
+            <div class="fw-bold text-dark mb-1" style="line-height: 1.1;">
+                {{ mapping.shop.name }}
+                {% if is_my_store %}
+                    <span class="badge bg-success ms-2 align-middle" style="font-size: 0.6rem;">TWÓJ SKLEP</span>
+                {% endif %}
+            </div>
+            <a href="{{ mapping.url }}" target="_blank" class="small text-muted text-decoration-none d-inline-block text-truncate" style="max-width: 200px;">
+                {{ mapping.url }} <i class="bi bi-box-arrow-up-right" style="font-size: 0.75rem;"></i>
+            </a>
+        </div>
+    </div>
+</td>
 
                             <td data-val="{{ mapping.last_price if mapping.last_price else 0 }}">
                                 {% if mapping.last_price %}
