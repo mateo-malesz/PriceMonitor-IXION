@@ -2693,6 +2693,100 @@ def project_margin(project_id):
                                'order': sort_order
                            })
 
+
+@app.route('/project/<int:project_id>/sales-report')
+@login_required
+def sales_report(project_id):
+    project = Project.query.get_or_404(project_id)
+    if current_user not in project.users:
+        flash('Brak dostępu.', category='error')
+        return redirect(url_for('projects'))
+
+    from sqlalchemy import func, case
+    from datetime import date
+
+    today = date.today()
+    first_day = today.replace(day=1)
+
+    start_date_str = request.args.get('start_date', first_day.strftime('%Y-%m-%d'))
+    end_date_str = request.args.get('end_date', today.strftime('%Y-%m-%d'))
+    brand_filter = request.args.get('brand', '')
+    sort_by = request.args.get('sort', 'revenue')
+    sort_order = request.args.get('order', 'desc')
+    page = request.args.get('page', 1, type=int)
+
+    try:
+        start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
+        end_date = datetime.strptime(end_date_str, '%Y-%m-%d').date()
+    except ValueError:
+        start_date, end_date = first_day, today
+
+    # Definicje wyrażeń SQL dla agregatów
+    qty_expr = func.sum(SalesHistory.quantity)
+    rev_expr = func.sum(SalesHistory.revenue)
+    # Zysk = Przychód - (Cena Zakupu * Ilość)
+    profit_expr = rev_expr - (func.coalesce(Product.purchase_price, 0) * qty_expr)
+    # Marża % = (Zysk / Przychód) * 100
+    margin_pct_expr = case((rev_expr > 0, (profit_expr / rev_expr) * 100), else_=0)
+
+    query = db.session.query(
+        Product,
+        qty_expr.label('total_qty'),
+        rev_expr.label('total_rev'),
+        profit_expr.label('total_profit'),
+        margin_pct_expr.label('margin_pct')
+    ).join(SalesHistory).filter(
+        Product.project_id == project.id,
+        SalesHistory.date >= start_date,
+        SalesHistory.date <= end_date,
+        SalesHistory.quantity > 0
+    )
+
+    if brand_filter and brand_filter.isdigit():
+        query = query.filter(Product.brand_id == int(brand_filter))
+
+    query = query.group_by(Product.id)
+
+    # Sortowanie serwerowe
+    if sort_by == 'title':
+        query = query.order_by(Product.title.desc() if sort_order == 'desc' else Product.title.asc())
+    elif sort_by == 'brand':
+        query = query.join(Brand, isouter=True).order_by(
+            Brand.name.desc() if sort_order == 'desc' else Brand.name.asc())
+    elif sort_by == 'qty':
+        query = query.order_by(qty_expr.desc() if sort_order == 'desc' else qty_expr.asc())
+    elif sort_by == 'revenue':
+        query = query.order_by(rev_expr.desc() if sort_order == 'desc' else rev_expr.asc())
+    elif sort_by == 'profit':
+        query = query.order_by(profit_expr.desc() if sort_order == 'desc' else profit_expr.asc())
+    elif sort_by == 'margin':
+        query = query.order_by(margin_pct_expr.desc() if sort_order == 'desc' else margin_pct_expr.asc())
+
+    pagination = query.paginate(page=page, per_page=50, error_out=False)
+
+    # Globalne statystyki dla kafelków
+    global_stats = db.session.query(func.sum(SalesHistory.quantity), func.sum(SalesHistory.revenue)).join(
+        Product).filter(
+        Product.project_id == project.id, SalesHistory.date >= start_date, SalesHistory.date <= end_date
+    )
+    if brand_filter and brand_filter.isdigit():
+        global_stats = global_stats.filter(Product.brand_id == int(brand_filter))
+
+    g_qty, g_rev = global_stats.first()
+    available_brands = db.session.query(Brand).join(Product).filter(
+        Product.project_id == project.id).distinct().order_by(Brand.name).all()
+
+    return render_template('sales_report.html',
+                           project=project,
+                           pagination=pagination,
+                           available_brands=available_brands,
+                           g_qty=g_qty or 0,
+                           g_rev=g_rev or 0,
+                           current_filters={
+                               'start_date': start_date_str, 'end_date': end_date_str,
+                               'brand': brand_filter, 'sort': sort_by, 'order': sort_order
+                           })
+
 @app.route('/project/<int:project_id>/margin-by-brand')
 @login_required
 def project_margin_by_brand(project_id):

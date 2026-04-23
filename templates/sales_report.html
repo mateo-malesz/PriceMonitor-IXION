@@ -1,0 +1,147 @@
+{% extends 'base.html' %}
+
+{% block title %}Raport Sprzedaży - {{ project.name }}{% endblock %}
+
+{% block content %}
+
+{# --- MAKRO DO SORTOWANIA --- #}
+{% macro sort_link(column_key, label) %}
+    {% set current_sort = current_filters.sort %}
+    {% set current_order = current_filters.order %}
+    {% set new_order = 'asc' %}
+    {% set icon_class = 'bi bi-arrow-down-up ms-1 small text-muted' %}
+
+    {% if current_sort == column_key %}
+        {% if current_order == 'asc' %}
+            {% set new_order = 'desc' %}
+            {% set icon_class = 'bi bi-arrow-up ms-1 text-dark' %}
+        {% else %}
+            {% set new_order = 'asc' %}
+            {% set icon_class = 'bi bi-arrow-down ms-1 text-dark' %}
+        {% endif %}
+    {% endif %}
+
+    <a href="{{ url_for('sales_report', project_id=project.id, sort=column_key, order=new_order, start_date=current_filters.start_date, end_date=current_filters.end_date, brand=current_filters.brand) }}"
+       class="text-decoration-none text-dark fw-bold d-block" style="font-size: 0.9rem;">
+        {{ label }} <i class="{{ icon_class }}" style="font-size: 0.7rem;"></i>
+    </a>
+{% endmacro %}
+
+<div class="mb-4">
+    <h2 class="fw-bold">Raport Sprzedaży</h2>
+    <p class="text-muted">Analiza sprzedaży zintegrowana z bazą kosztową.</p>
+</div>
+
+<div class="card shadow-sm border-0 mb-4 bg-light rounded-4">
+    <div class="card-body p-4">
+        <form method="GET" action="{{ url_for('sales_report', project_id=project.id) }}" class="row g-3 align-items-end">
+            <input type="hidden" name="sort" value="{{ current_filters.sort }}">
+            <input type="hidden" name="order" value="{{ current_filters.order }}">
+
+            <div class="col-md-3">
+                <label class="form-label small fw-bold text-muted text-uppercase mb-1">Data od</label>
+                <input type="date" name="start_date" class="form-control fw-bold" value="{{ current_filters.start_date }}" required>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label small fw-bold text-muted text-uppercase mb-1">Data do</label>
+                <input type="date" name="end_date" class="form-control fw-bold" value="{{ current_filters.end_date }}" required>
+            </div>
+            <div class="col-md-4">
+                <label class="form-label small fw-bold text-muted text-uppercase mb-1">Producent</label>
+                <select name="brand" class="form-select fw-bold">
+                    <option value="">Wszystkie Marki</option>
+                    {% for brand in available_brands %}
+                        <option value="{{ brand.id }}" {% if current_filters.brand|int == brand.id %}selected{% endif %}>{{ brand.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-2">
+                <button type="submit" class="btn btn-dark fw-bold w-100">Filtruj</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="row g-3 mb-4">
+    <div class="col-md-6"><div class="card border-0 shadow-sm p-4 h-100 border-start border-4 border-primary">
+        <div class="text-muted small fw-bold text-uppercase mb-1">Sztuk sprzedano</div>
+        <div class="fs-1 fw-bold">{{ g_qty }}</div>
+    </div></div>
+    <div class="col-md-6"><div class="card border-0 shadow-sm p-4 h-100 border-start border-4 border-success">
+        <div class="text-muted small fw-bold text-uppercase mb-1">Przychód całkowity</div>
+        <div class="fs-1 fw-bold text-success">{{ "{:,.2f}".format(g_rev).replace(',', ' ') }} PLN</div>
+    </div></div>
+</div>
+
+<div class="card border-0 shadow-sm mb-4 rounded-4">
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="bg-light">
+                    <tr>
+                        <th class="ps-4 py-3">{{ sort_link('title', 'Produkt / SKU') }}</th>
+                        <th class="py-3">{{ sort_link('brand', 'Marka') }}</th>
+                        <th class="text-center py-3">{{ sort_link('qty', 'Sztuk') }}</th>
+                        <th class="text-end py-3">{{ sort_link('revenue', 'Przychód') }}</th>
+                        <th class="text-end py-3">{{ sort_link('profit', 'Zysk Brutto') }}</th>
+                        <th class="text-center pe-4 py-3">{{ sort_link('margin', 'Marża') }}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in pagination.items %}
+                    {% set p = item[0] %}
+                    <tr>
+                        <td class="ps-4 py-3">
+                            <div class="d-flex align-items-center">
+                                {% if p.image_link %}
+                                    <img src="{{ p.image_link }}" alt="img" class="rounded border me-3" style="width: 42px; height: 42px; object-fit: contain; background: #fff;">
+                                {% endif %}
+                                <div>
+                                    <a href="{{ url_for('product_details', project_id=project.id, product_id=p.id) }}" class="fw-bold text-dark text-decoration-none hover-primary">{{ p.title }}</a>
+                                    <div class="small text-muted font-monospace">{{ p.sku or '-' }}</div>
+                                </div>
+                            </div>
+                        </td>
+                        <td><span class="badge bg-light text-dark border">{{ p.brand.name if p.brand else '-' }}</span></td>
+                        <td class="text-center fw-bold">{{ item.total_qty }}</td>
+                        <td class="text-end fw-bold text-primary">{{ "{:,.2f}".format(item.total_rev).replace(',', ' ') }} PLN</td>
+                        <td class="text-end fw-bold">
+                            {% if p.purchase_price %}
+                                <span class="{{ 'text-success' if item.total_profit > 0 else 'text-danger' }}">
+                                    {{ "{:,.2f}".format(item.total_profit).replace(',', ' ') }} PLN
+                                </span>
+                            {% else %}<span class="text-muted small">Brak ceny zak.</span>{% endif %}
+                        </td>
+                        <td class="text-center pe-4">
+                            {% if p.purchase_price %}
+                                {% set m = item.margin_pct %}
+                                <span class="badge {% if m < 10 %}bg-danger-subtle text-danger border border-danger-subtle{% elif m < 20 %}bg-warning-subtle text-warning-emphasis border border-warning-subtle{% else %}bg-success-subtle text-success border border-success-subtle{% endif %} px-2 py-1">
+                                    {{ m|round(1) }}%
+                                </span>
+                            {% else %}-{% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+{% if pagination.pages > 1 %}
+<nav class="mb-5"><ul class="pagination justify-content-center">
+    <li class="page-item {{ 'disabled' if not pagination.has_prev }}">
+        <a class="page-link" href="{{ url_for('sales_report', project_id=project.id, page=pagination.prev_num, **current_filters) }}">Poprzednia</a>
+    </li>
+    {% for page_num in pagination.iter_pages() %}
+        {% if page_num %}<li class="page-item {{ 'active' if page_num == pagination.page }}">
+            <a class="page-link" href="{{ url_for('sales_report', project_id=project.id, page=page_num, **current_filters) }}">{{ page_num }}</a>
+        </li>{% else %}<li class="page-item disabled"><span class="page-link">...</span></li>{% endif %}
+    {% endfor %}
+    <li class="page-item {{ 'disabled' if not pagination.has_next }}">
+        <a class="page-link" href="{{ url_for('sales_report', project_id=project.id, page=pagination.next_num, **current_filters) }}">Następna</a>
+    </li>
+</ul></nav>
+{% endif %}
+
+{% endblock %}

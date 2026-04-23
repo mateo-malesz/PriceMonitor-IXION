@@ -102,7 +102,7 @@ def fetch_sales_for_date(api_url, username, password, target_date):
 
                     sku_upper = str(sku).strip().upper()
                     qty = float(prod.get('quantity') or 0)
-                    price = float(prod.get('price') or 0)
+                    price = float(prod.get('price_brutto') or 0)
 
                     if sku_upper not in sales_data:
                         sales_data[sku_upper] = {'qty': 0, 'revenue': 0.0}
