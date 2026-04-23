@@ -343,6 +343,36 @@
                 {% endif %}
             </div>
         </div>
+    <div class="card shadow-sm border-0 mb-4">
+            <div class="card-header bg-white border-0 py-3 d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <h5 class="fw-bold mb-0"><i class="bi bi-cart-check me-2"></i>Historia Sprzedaży (30 dni)</h5>
+
+                {% if sales_summary and sales_summary.qty > 0 %}
+                <div class="text-end">
+                    <span class="badge bg-primary-subtle text-primary border border-primary-subtle px-3 py-2 me-2 fs-6">
+                        Sprzedano: {{ sales_summary.qty }} szt.
+                    </span>
+                    <span class="badge bg-success-subtle text-success border border-success-subtle px-3 py-2 fs-6">
+                        Przychód: {{ "{:,.2f}".format(sales_summary.rev).replace(',', ' ') }} PLN
+                    </span>
+                </div>
+                {% endif %}
+            </div>
+
+            <div class="card-body">
+                {% if sales_data and sales_data != '[]' %}
+                    <div style="height: 300px; width: 100%;">
+                        <canvas id="salesChart"></canvas>
+                    </div>
+                {% else %}
+                    <div class="text-center py-5 bg-light rounded">
+                        <i class="bi bi-cart-x display-4 text-muted opacity-50 mb-3"></i>
+                        <h6 class="fw-bold text-muted">Brak danych o sprzedaży</h6>
+                        <p class="small text-muted mb-0">W ciągu ostatnich 30 dni nie odnotowano sprzedaży dla tego produktu, lub dane z SOTE nie zostały zsynchronizowane.</p>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
      </div>
 <!-- PRAWA BOCZNA KOLUMNA -->
     <div class="col-lg-4">
@@ -567,6 +597,74 @@
                                 }
                             },
                             grid: { color: '#f0f0f0' }
+                        }
+                    }
+                }
+            });
+        }
+        // --- WYKRES 3: SPRZEDAŻ (DUAL AXIS SOTE) ---
+        const salesDataRaw = {{ sales_data | default('null') | safe }};
+        const canvasSales = document.getElementById('salesChart');
+
+        if (canvasSales && salesDataRaw && salesDataRaw.length > 0) {
+            const ctxSales = canvasSales.getContext('2d');
+            new Chart(ctxSales, {
+                type: 'bar', // Główny typ to bar, linia zdefiniowana jest w backendzie (type: 'line')
+                data: { datasets: salesDataRaw },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: { mode: 'index', intersect: false },
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                            labels: { usePointStyle: true, padding: 20, boxWidth: 8 }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    let label = context.dataset.label || '';
+                                    if (label) label += ': ';
+                                    if (context.parsed.y !== null) {
+                                        label += context.parsed.y;
+                                        // Dodajemy sufiksy w zależności od tego, z której osi bierzemy dane
+                                        if (context.dataset.yAxisID === 'y_rev') {
+                                            label += ' PLN';
+                                        } else {
+                                            label += ' szt.';
+                                        }
+                                    }
+                                    return label;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            type: 'time',
+                            time: {
+                                unit: 'day',
+                                tooltipFormat: 'dd.MM.yyyy',
+                                displayFormats: { day: 'dd.MM' }
+                            },
+                            adapters: { date: { zone: 'local' } },
+                            grid: { display: false }
+                        },
+                        y: {
+                            type: 'linear',
+                            display: true,
+                            position: 'left',
+                            title: { display: true, text: 'Ilość (szt.)', color: '#0d6efd' },
+                            ticks: { stepSize: 1, color: '#0d6efd' }, // Wymuszamy liczby całkowite
+                            grid: { color: '#f0f0f0' }
+                        },
+                        y_rev: {
+                            type: 'linear',
+                            display: true,
+                            position: 'right',
+                            title: { display: true, text: 'Przychód (PLN)', color: '#198754' },
+                            ticks: { color: '#198754' },
+                            grid: { display: false } // Wyłączamy siatkę po prawej stronie, by uniknąć pajęczyny na wykresie
                         }
                     }
                 }

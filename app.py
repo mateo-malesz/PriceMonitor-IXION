@@ -11,6 +11,8 @@ from datetime import datetime, date, timezone
 from scraper import get_current_price, init_batch_session, close_batch_session
 from flask_admin import Admin, AdminIndexView, expose
 from flask_admin.contrib.sqla import ModelView
+from sote_integration import fetch_sales_for_date
+from datetime import timedelta
 import requests
 import os
 import re
@@ -138,6 +140,12 @@ class UserModelView(MyModelView):
 
         return super(UserModelView, self).on_model_change(form, model, is_created)
 
+class ProjectModelView(MyModelView):
+    # Wykluczamy ciężkie relacje z formularza (żeby nie wysyłać gigantycznych paczek danych)
+    form_excluded_columns = ['products', 'tasks']
+
+    # Opcjonalnie: ułatwiamy sobie widok tabeli, żeby był bardziej przejrzysty
+    column_list = ['name', 'domain', 'api_type', 'api_url']
 
 class MyAdminIndexView(AdminIndexView):
     def is_accessible(self):
@@ -187,6 +195,10 @@ class Project(db.Model):
     domain = db.Column(db.String(100))
     product_feed_url = db.Column(db.String(500), nullable=True)
     last_feed_sync = db.Column(db.DateTime, nullable=True)
+    api_type = db.Column(db.String(50), nullable=True)  # np. 'SOTE'
+    api_url = db.Column(db.String(500), nullable=True)
+    api_user = db.Column(db.String(100), nullable=True)
+    api_password = db.Column(db.String(255), nullable=True)
     products = db.relationship('Product', backref='project', lazy=True, cascade="all, delete")
 
 
@@ -234,6 +246,9 @@ class Product(db.Model):
                 count += 1
         return count
 
+    def __str__(self):
+        return f"{self.sku} - {self.title}"
+
 # --- KOMENTARZE PRODUKTU ---
 class ProductComment(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -278,6 +293,15 @@ class ScheduledTask(db.Model):
     project = db.relationship('Project', backref=db.backref('tasks', cascade="all, delete-orphan"))
     brand = db.relationship('Brand')
 
+
+# --- HISTORIA SPRZEDAŻY ---
+class SalesHistory(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    product_id = db.Column(db.Integer, db.ForeignKey('product.id'), nullable=False)
+    date = db.Column(db.Date, nullable=False)
+    quantity = db.Column(db.Integer, default=0, nullable=False)
+    revenue = db.Column(db.Float, default=0.0, nullable=False)
+    product = db.relationship('Product', backref=db.backref('sales_history', lazy=True, cascade="all, delete"))
 
 @login_manager.user_loader
 def load_user(user_id):
@@ -967,6 +991,69 @@ def sync_products(project_id):
     return redirect(url_for('project_dashboard', project_id=project.id))
 
 
+@app.route('/project/<int:project_id>/force-sales-sync', methods=['POST'])
+@login_required
+def force_sales_sync(project_id):
+    project = Project.query.get_or_404(project_id)
+    if current_user not in project.users:
+        flash('Brak dostępu.', category='error')
+        return redirect(url_for('projects'))
+
+    if project.api_type != 'SOTE' or not project.api_url:
+        flash('Ten projekt nie ma skonfigurowanej integracji SOTE.', category='warning')
+        return redirect(url_for('project_dashboard', project_id=project.id))
+
+    # 1. SZUKAMY OSTATNIEJ ZAPISANEJ DATY W BAZIE DLA TEGO PROJEKTU
+    last_record = SalesHistory.query.join(Product).filter(Product.project_id == project.id).order_by(
+        SalesHistory.date.desc()).first()
+
+    today = date.today()
+    yesterday = today - timedelta(days=1)
+
+    if last_record:
+        # Zaczynamy dzień po ostatnim wpisie
+        current_date = last_record.date + timedelta(days=1)
+    else:
+        # Jeśli baza jest całkowicie pusta, pobieramy np. z ostatnich 7 dni na start
+        current_date = today - timedelta(days=7)
+
+    # Jeśli baza jest już zaktualizowana do wczoraj
+    if current_date > yesterday:
+        flash('Dane są już w 100% aktualne. Brak dni do nadrobienia!', category='info')
+        return redirect(url_for('project_dashboard', project_id=project.id))
+
+    days_processed = 0
+    active_products = Product.query.filter_by(project_id=project.id, is_active=True).all()
+
+    # 2. PĘTLA CZASU: LECIMY DZIEŃ PO DNIU AŻ DO WCZORAJ
+    while current_date <= yesterday:
+        logger.info(f"[SYNC] Nadrabianie daty: {current_date}")
+
+        sales_data = fetch_sales_for_date(project.api_url, project.api_user, project.api_password, current_date)
+
+        for p in active_products:
+            sku_upper = str(p.sku).strip().upper() if p.sku else None
+            if not sku_upper: continue
+
+            qty = int(sales_data.get(sku_upper, {}).get('qty', 0))
+            revenue = float(sales_data.get(sku_upper, {}).get('revenue', 0.0))
+
+            # Zabezpieczenie przed dublami
+            existing = SalesHistory.query.filter_by(product_id=p.id, date=current_date).first()
+            if existing:
+                existing.quantity = qty
+                existing.revenue = revenue
+            else:
+                new_history = SalesHistory(product_id=p.id, date=current_date, quantity=qty, revenue=revenue)
+                db.session.add(new_history)
+
+        db.session.commit()
+        current_date += timedelta(days=1)
+        days_processed += 1
+
+    flash(f'Sukces! Nadrobiono zaległości z {days_processed} dni.', category='success')
+    return redirect(url_for('project_dashboard', project_id=project.id))
+
 # --- IMPORT LINKÓW KONKURENCJI ---
 @app.route('/project/<int:project_id>/import-links', methods=['GET', 'POST'])
 @login_required
@@ -1452,13 +1539,56 @@ def product_details(project_id, product_id):
     # --- ZMIANA: Przekazujemy wszystkie mappingi, włącznie z własnym sklepem ---
     # Wcześniej filtrowaliśmy własny sklep, teraz go zostawiamy, aby wyświetlić w tabeli
 
+    # --- POBIERANIE DANYCH O SPRZEDAŻY DLA WYKRESU (ostatnie 30 dni) ---
+    from datetime import date, timedelta
+    thirty_days_ago = date.today() - timedelta(days=30)
+
+    sales_history = SalesHistory.query.filter(
+        SalesHistory.product_id == product.id,
+        SalesHistory.date >= thirty_days_ago
+    ).order_by(SalesHistory.date.asc()).all()
+
+    qty_points = [{'x': s.date.strftime('%Y-%m-%d'), 'y': s.quantity} for s in sales_history]
+    rev_points = [{'x': s.date.strftime('%Y-%m-%d'), 'y': s.revenue} for s in sales_history]
+    # Szybkie podsumowanie 30-dniowe
+    total_qty = sum(s.quantity for s in sales_history)
+    total_rev = sum(s.revenue for s in sales_history)
+    sales_summary = {'qty': total_qty, 'rev': total_rev}
+
+    sales_datasets = []
+    if qty_points:
+        # Słupki ze sztukami
+        sales_datasets.append({
+            'type': 'bar',
+            'label': 'Ilość (szt.)',
+            'data': qty_points,
+            'backgroundColor': 'rgba(13, 110, 253, 0.7)',
+            'yAxisID': 'y',
+            'order': 2
+        })
+        # Linia przychodu
+        sales_datasets.append({
+            'type': 'line',
+            'label': 'Przychód (PLN)',
+            'data': rev_points,
+            'borderColor': 'rgba(25, 135, 84, 1)',
+            'backgroundColor': 'rgba(25, 135, 84, 0.1)',
+            'borderWidth': 2,
+            'fill': True,
+            'tension': 0.3,
+            'yAxisID': 'y_rev',
+            'order': 1
+        })
+
     return render_template('product_details.html',
                            project=project,
                            product=product,
                            price_index=price_index,
                            chart_data=json.dumps(price_datasets),
                            avail_data=json.dumps(avail_datasets),
-                           mappings=sorted_mappings)  # Przekazujemy posortowaną listę
+                           sales_data=json.dumps(sales_datasets),
+                           sales_summary=sales_summary,
+                           mappings=sorted_mappings)
 
 
 # --- DODAWANIE LINKU DO ŚLEDZENIA ---
@@ -1972,6 +2102,69 @@ def run_scheduled_scans():
                     logger.error(f"[SCHEDULER ERROR] Zadanie wykonane, ale błąd wysyłki: {e}", exc_info=True)
         close_batch_session(batch_session)
 
+
+@scheduler.task('cron', id='sote_sales_sync', hour=3, minute=0)
+def sync_sote_sales_daily():
+    with app.app_context():
+        logger.info("--- [SOTE SYNC] Rozpoczynam nocną synchronizację sprzedaży ---")
+
+        projects = Project.query.filter_by(api_type='SOTE').all()
+        today = date.today()
+        yesterday = today - timedelta(days=1)
+
+        for proj in projects:
+            if not proj.api_url or not proj.api_user or not proj.api_password:
+                logger.warning(f"[SOTE SYNC] Projekt {proj.name} nie ma pełnych danych API. Pomijam.")
+                continue
+
+            logger.info(f"[SOTE SYNC] Sprawdzanie historii dla projektu: {proj.name}")
+
+            # 1. Sprawdzamy na jakiej dacie zatrzymała się baza tego konkretnego projektu
+            last_record = SalesHistory.query.join(Product).filter(Product.project_id == proj.id).order_by(
+                SalesHistory.date.desc()).first()
+
+            if last_record:
+                # Zaczynamy nadrabianie od dnia po ostatnim wpisie
+                current_date = last_record.date + timedelta(days=1)
+            else:
+                # Jeśli baza jest całkowicie pusta, zasysamy z 7 dni wstecz na dobry początek
+                current_date = today - timedelta(days=7)
+
+            # Jeśli baza jest spójna i nie ma braków
+            if current_date > yesterday:
+                logger.info(f"[SOTE SYNC] Projekt {proj.name} jest aktualny do wczoraj. Brak braków.")
+                continue
+
+            active_products = Product.query.filter_by(project_id=proj.id, is_active=True).all()
+            days_processed = 0
+
+            # 2. PĘTLA: Pobieramy dane dzień po dniu aż do 'wczoraj'
+            while current_date <= yesterday:
+                logger.info(f"[SOTE SYNC] {proj.name} -> Zaciąganie danych dla: {current_date}")
+
+                sales_data = fetch_sales_for_date(proj.api_url, proj.api_user, proj.api_password, current_date)
+
+                for p in active_products:
+                    sku_upper = str(p.sku).strip().upper() if p.sku else None
+                    if not sku_upper: continue
+
+                    qty = int(sales_data.get(sku_upper, {}).get('qty', 0))
+                    revenue = float(sales_data.get(sku_upper, {}).get('revenue', 0.0))
+
+                    # Wrzucamy dane, chroniąc się przed duplikatami
+                    existing = SalesHistory.query.filter_by(product_id=p.id, date=current_date).first()
+                    if existing:
+                        existing.quantity = qty
+                        existing.revenue = revenue
+                    else:
+                        new_history = SalesHistory(product_id=p.id, date=current_date, quantity=qty, revenue=revenue)
+                        db.session.add(new_history)
+
+                db.session.commit()
+                current_date += timedelta(days=1)
+                days_processed += 1
+
+            logger.info(f"[SOTE SYNC] Zakończono projekt {proj.name}. Nadrobiono {days_processed} dni.")
 
 # --- RĘCZNE WYMUSZENIE SKANOWANIA ---
 @app.route('/project/<int:project_id>/scheduler/run-all', methods=['POST'])
@@ -2890,13 +3083,14 @@ def create_admin():
 
 # --- REJESTRACJA WIDOKÓW W FLASK-ADMIN ---
 admin.add_view(UserModelView(User, db.session, name='Użytkownicy'))
-admin.add_view(MyModelView(Project, db.session, name='Projekty'))
+admin.add_view(ProjectModelView(Project, db.session, name='Projekty'))
 admin.add_view(MyModelView(Brand, db.session, name='Marki'))
 admin.add_view(ProductModelView(Product, db.session, name='Produkty'))
 admin.add_view(MyModelView(Shop, db.session, name='Sklepy'))
 admin.add_view(MyModelView(ProductMapping, db.session, name='Linki (Mapping)'))
 admin.add_view(MyModelView(ScheduledTask, db.session, name='Harmonogram'))
 admin.add_view(MyModelView(PriceHistory, db.session, name='Historia Cen'))
+admin.add_view(MyModelView(SalesHistory, db.session, name='Historia Sprzedaży'))
 
 if __name__ == '__main__':
     with app.app_context():
