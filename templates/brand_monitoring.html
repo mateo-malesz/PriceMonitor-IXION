@@ -1,0 +1,219 @@
+{% extends 'base.html' %}
+
+{% block title %}Monitoring Marki - {{ project.name }}{% endblock %}
+
+{% block content %}
+<div class="mb-4 d-flex justify-content-between align-items-center">
+    <div>
+        <h2 class="fw-bold">Monitoring cen Marki</h2>
+        <p class="text-muted">Analiza zbiorcza cen i konkurencji dla producenta.</p>
+    </div>
+</div>
+
+<div class="card shadow-sm border-0 mb-4 bg-light rounded-4">
+    <div class="card-body p-4">
+        <form method="GET" action="{{ url_for('brand_monitoring', project_id=project.id) }}" class="row g-3 align-items-end">
+            <input type="hidden" name="sort" value="{{ current_filters.sort }}">
+            <input type="hidden" name="order" value="{{ current_filters.order }}">
+
+            <div class="col-md-6">
+                <label class="form-label small fw-bold text-muted text-uppercase mb-1">Wybierz producenta</label>
+                <select name="brand" class="form-select fw-bold border-dark" onchange="this.form.submit()">
+                    <option value="">-- Wybierz z listy --</option>
+                    {% for b in available_brands %}
+                        <option value="{{ b.id }}" {% if current_filters.brand == b.id %}selected{% endif %}>{{ b.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-2">
+                <button type="submit" class="btn btn-dark fw-bold w-100">Załaduj</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+{% if brand %}
+    <div class="row g-3 mb-4">
+        <div class="col-md-3">
+            <div class="card border-0 shadow-sm p-3 border-start border-4 border-primary">
+                <small class="text-muted fw-bold text-uppercase" style="font-size: 0.65rem;">Price Index (Śr.)</small>
+                <div class="fs-4 fw-bold">{{ brand_stats.avg_pi }}%</div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card border-0 shadow-sm p-3 border-start border-4 border-danger">
+                <small class="text-muted fw-bold text-uppercase" style="font-size: 0.65rem;">Jesteś droższy</small>
+                <div class="fs-4 fw-bold text-danger">{{ brand_stats.conflicts }}</div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card border-0 shadow-sm p-3 border-start border-4 border-success">
+                <small class="text-muted fw-bold text-uppercase" style="font-size: 0.65rem;">Jesteś tańszy</small>
+                <div class="fs-4 fw-bold text-success">{{ brand_stats.opportunities }}</div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card border-0 shadow-sm p-3 border-start border-4 border-dark">
+                <small class="text-muted fw-bold text-uppercase" style="font-size: 0.65rem;">Wszystkich produktów</small>
+                <div class="fs-4 fw-bold">{{ brand_stats.total }}</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="d-flex justify-content-between align-items-center mb-3 bg-white p-3 rounded-3 shadow-sm border">
+        <div class="btn-group">
+            <button class="btn btn-outline-secondary btn-sm fw-bold" onclick="toggleProductCollapses(true)">
+                <i class="bi bi-arrows-expand me-1"></i> Rozwiń tabele
+            </button>
+            <button class="btn btn-outline-secondary btn-sm fw-bold" onclick="toggleProductCollapses(false)">
+                <i class="bi bi-arrows-collapse me-1"></i> Zwiń tabele
+            </button>
+        </div>
+
+        <div class="d-flex align-items-center gap-2">
+            <i class="bi bi-filter-circle text-muted fs-5"></i>
+            <span class="small text-muted fw-bold text-uppercase">Sortuj:</span>
+            <select class="form-select form-select-sm fw-bold" style="width: auto;" onchange="window.location.href=this.value;">
+                <option value="{{ url_for('brand_monitoring', project_id=project.id, brand=current_filters.brand, sort='price_index', order='asc') }}" {% if current_filters.sort == 'price_index' and current_filters.order == 'asc' %}selected{% endif %}>Price Index (Rosnąco)</option>
+                <option value="{{ url_for('brand_monitoring', project_id=project.id, brand=current_filters.brand, sort='price_index', order='desc') }}" {% if current_filters.sort == 'price_index' and current_filters.order == 'desc' %}selected{% endif %}>Price Index (Malejąco)</option>
+                <option value="{{ url_for('brand_monitoring', project_id=project.id, brand=current_filters.brand, sort='title', order='asc') }}" {% if current_filters.sort == 'title' and current_filters.order == 'asc' %}selected{% endif %}>Nazwa (A-Z)</option>
+                <option value="{{ url_for('brand_monitoring', project_id=project.id, brand=current_filters.brand, sort='title', order='desc') }}" {% if current_filters.sort == 'title' and current_filters.order == 'desc' %}selected{% endif %}>Nazwa (Z-A)</option>
+                <option value="{{ url_for('brand_monitoring', project_id=project.id, brand=current_filters.brand, sort='price', order='desc') }}" {% if current_filters.sort == 'price' and current_filters.order == 'desc' %}selected{% endif %}>Twoja Cena (Najdroższe)</option>
+            </select>
+        </div>
+    </div>
+
+    {% for item in brand_data %}
+        {% set product = item.product %}
+        <div class="card shadow-sm mb-3 border-0 product-card">
+            <div class="card-body p-3">
+                <div class="row align-items-center">
+                    <div class="col-auto">
+                        <div class="rounded border bg-white d-flex align-items-center justify-content-center" style="width: 50px; height: 50px;">
+                            {% if product.image_link %}<img src="{{ product.image_link }}" style="max-height: 45px; object-fit: contain;">{% endif %}
+                        </div>
+                    </div>
+<div class="col">
+                        <h6 class="fw-bold mb-0">
+                            <a href="{{ url_for('product_details', project_id=project.id, product_id=product.id) }}" class="text-dark text-decoration-none text-primary-hover">
+                                {{ product.title }}
+                            </a>
+                        </h6>
+                        <small class="text-muted font-monospace">SKU: {{ product.sku or '-' }}</small>
+                    </div>
+<div class="col-auto text-center px-2" style="width: 110px;">
+                        <small class="text-muted d-block text-uppercase fw-bold" style="font-size: 0.55rem;">Price Index</small>
+                        {% if item.price_index is not none %}
+                            <span class="badge {% if item.price_index > 105 %}bg-success{% elif item.price_index < 95 %}bg-danger{% else %}bg-secondary{% endif %}">
+                                {{ item.price_index }}%
+                            </span>
+                        {% else %}
+                            <span class="badge bg-secondary">-</span>
+                        {% endif %}
+                    </div>
+<div class="col-auto text-end border-start px-3" style="width: 140px;">
+                        <small class="text-muted d-block text-uppercase fw-bold" style="font-size: 0.55rem;">Twoja Cena</small>
+                        <span class="fw-bold text-dark">{{ "{:,.2f}".format(product.my_price) if product.my_price else '-' }} PLN</span>
+                    </div>
+
+                    <div class="col-auto text-end ps-3" style="width: 160px;">
+                        <button class="btn btn-sm btn-outline-dark rounded-pill w-100 toggle-btn" type="button" data-bs-toggle="collapse" data-bs-target="#table-{{ product.id }}">
+                            <i class="bi bi-chevron-down"></i> Konkurencja
+                        </button>
+                    </div>
+                </div>
+
+                <div class="collapse product-collapse mt-3" id="table-{{ product.id }}">
+                    <div class="table-responsive border-top pt-3">
+                        <table class="table table-sm table-hover align-middle mb-0">
+                            <thead class="bg-light small fw-bold">
+                                <tr>
+                                    <th class="ps-3">Sklep</th>
+                                    <th>Cena</th>
+                                    <th>Różnica</th>
+                                    <th>Data</th>
+                                    <th>Status</th>
+                                    <th class="text-end pe-3">Akcja</th>
+                                </tr>
+                            </thead>
+                            <tbody style="font-size: 0.85rem;">
+                                {% for mapping in item.mappings %}
+                                    {% set is_my = (product.my_url and mapping.url == product.my_url) %}
+                                    <tr {% if is_my %}class="table-success fw-bold"{% endif %}>
+                                        <td class="ps-3">
+    <a href="{{ mapping.url }}" target="_blank" class="text-decoration-none text-dark fw-bold d-flex align-items-center">
+        <img src="https://www.google.com/s2/favicons?domain={{ mapping.shop.domain }}" class="me-2" style="width:16px; height:16px;">
+        <span>{{ mapping.shop.name }}</span>
+        <i class="bi bi-box-arrow-up-right ms-2 small text-muted" style="font-size: 0.7rem;"></i>
+    </a>
+</td>
+                                        <td>{{ "%.2f"|format(mapping.last_price) if mapping.last_price else '-' }} PLN</td>
+                                        <td>
+                                            {% if not is_my and mapping.last_price and product.my_price %}
+                                                {% set diff = mapping.last_price - product.my_price %}
+                                                <span class="{% if diff < 0 %}text-danger{% else %}text-success{% endif %}">
+                                                    {{ "%+.2f"|format(diff) }} PLN
+                                                </span>
+                                            {% else %}-{% endif %}
+                                        </td>
+                                        <td class="text-muted">{{ mapping.last_checked_at.strftime('%m-%d %H:%M') if mapping.last_checked_at else '-' }}</td>
+                                        <td>
+                                            {% if mapping.is_available %}<i class="bi bi-check-circle text-success"></i>{% else %}<i class="bi bi-x-circle text-danger"></i>{% endif %}
+                                        </td>
+                                        <td class="text-end pe-3">
+                                            <a href="{{ url_for('product_details', project_id=project.id, product_id=product.id) }}" class="btn btn-sm btn-link p-0"><i class="bi bi-pencil"></i></a>
+                                        </td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    {% endfor %}
+
+    {% if pagination.pages > 1 %}
+    <nav class="mt-4 mb-5">
+        <ul class="pagination justify-content-center">
+            <li class="page-item {{ 'disabled' if not pagination.has_prev }}">
+                <a class="page-link" href="{{ url_for('brand_monitoring', project_id=project.id, brand=current_filters.brand, sort=current_filters.sort, order=current_filters.order, page=pagination.prev_num) }}">Poprzednia</a>
+            </li>
+            {% for page_num in pagination.iter_pages() %}
+                {% if page_num %}
+                    <li class="page-item {{ 'active' if page_num == pagination.page }}">
+                        <a class="page-link" href="{{ url_for('brand_monitoring', project_id=project.id, brand=current_filters.brand, sort=current_filters.sort, order=current_filters.order, page=page_num) }}">{{ page_num }}</a>
+                    </li>
+                {% else %}
+                    <li class="page-item disabled"><span class="page-link">...</span></li>
+                {% endif %}
+            {% endfor %}
+            <li class="page-item {{ 'disabled' if not pagination.has_next }}">
+                <a class="page-link" href="{{ url_for('brand_monitoring', project_id=project.id, brand=current_filters.brand, sort=current_filters.sort, order=current_filters.order, page=pagination.next_num) }}">Następna</a>
+            </li>
+        </ul>
+    </nav>
+    {% endif %}
+
+{% else %}
+    <div class="text-center py-5 bg-white rounded-4 shadow-sm">
+        <i class="bi bi-person-badge display-1 text-muted opacity-25"></i>
+        <h4 class="mt-3 text-muted">Wybierz producenta, aby rozpocząć monitorowanie</h4>
+    </div>
+{% endif %}
+
+<script>
+function toggleProductCollapses(show) {
+    // KLUCZOWA ZMIANA: Targetujemy tylko .product-collapse
+    const collapses = document.querySelectorAll('.product-collapse');
+    collapses.forEach(el => {
+        const bsCollapse = bootstrap.Collapse.getOrCreateInstance(el, { toggle: false });
+        if (show) {
+            bsCollapse.show();
+        } else {
+            bsCollapse.hide();
+        }
+    });
+}
+</script>
+{% endblock %}

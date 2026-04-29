@@ -2881,6 +2881,119 @@ def project_margin_by_brand(project_id):
                            current_filters={'sort': sort_by, 'order': sort_order})
 
 
+@app.route('/project/<int:project_id>/brand-monitor')
+@login_required
+def brand_monitoring(project_id):
+    project = Project.query.get_or_404(project_id)
+    if current_user not in project.users:
+        flash('Brak dostępu.', category='error')
+        return redirect(url_for('projects'))
+
+    brand_id = request.args.get('brand', type=int)
+    page = request.args.get('page', 1, type=int)
+    sort_by = request.args.get('sort', 'price_index')
+    sort_order = request.args.get('order', 'asc')
+
+    available_brands = db.session.query(Brand).join(Product).filter(
+        Product.project_id == project.id,
+        Product.is_active == True
+    ).distinct().order_by(Brand.name).all()
+
+    brand = None
+    brand_stats = {}
+    pagination = None
+    brand_data = []
+
+    if brand_id:
+        brand = Brand.query.get_or_404(brand_id)
+
+        from sqlalchemy import func, case, or_
+
+
+        # Wyrażenie do wyliczenia Price Indexu w locie przez bazę danych
+        avg_comp_stmt = db.session.query(func.avg(ProductMapping.last_price)).filter(
+            ProductMapping.product_id == Product.id,
+            ProductMapping.is_active == True,
+            ProductMapping.is_available == True,  # Tylko dostępne!
+            ProductMapping.last_price > 0,
+            or_(Product.my_url == None, ProductMapping.url != Product.my_url),
+            ProductMapping.last_price >= Product.my_price * 0.2,  # Zabezpieczenie przed anomaliami
+            ProductMapping.last_price <= Product.my_price * 5
+        ).correlate(Product).scalar_subquery()
+
+        pi_expr = (avg_comp_stmt / Product.my_price) * 100
+
+        # --- 1. STATYSTYKI GŁÓWNE ---
+        stats_query = db.session.query(
+            func.count(Product.id).label('total'),
+            func.avg(pi_expr).label('avg_pi'),
+            func.sum(case((pi_expr < 100, 1), else_=0)).label('conflicts'),
+            func.sum(case((pi_expr > 115, 1), else_=0)).label('opportunities')
+        ).filter(
+            Product.project_id == project.id,
+            Product.brand_id == brand.id,
+            Product.is_active == True,
+            Product.my_price > 0
+        ).first()
+
+        brand_stats = {
+            'total': stats_query.total or 0,
+            'avg_pi': round(stats_query.avg_pi, 1) if stats_query.avg_pi else 0,
+            'conflicts': stats_query.conflicts or 0,
+            'opportunities': stats_query.opportunities or 0
+        }
+
+        # --- 2. ZAPYTANIE O PRODUKTY I SORTOWANIE ---
+        query = Product.query.filter_by(
+            project_id=project.id,
+            brand_id=brand.id,
+            is_active=True
+        )
+
+        # Logika sortowania z zabezpieczeniem (wypycha wartości NULL na sam dół)
+        if sort_by == 'title':
+            query = query.order_by(Product.title.desc() if sort_order == 'desc' else Product.title.asc())
+        elif sort_by == 'price':
+            query = query.order_by(Product.my_price.is_(None),
+                                   Product.my_price.desc() if sort_order == 'desc' else Product.my_price.asc())
+        elif sort_by == 'price_index':
+            query = query.order_by(pi_expr.is_(None), pi_expr.desc() if sort_order == 'desc' else pi_expr.asc())
+
+        pagination = query.paginate(page=page, per_page=20, error_out=False)
+
+        for p in pagination.items:
+            sorted_mappings = sorted(p.mappings, key=lambda m: (
+                m.last_price if m.last_price else float('inf'),
+                m.shop.name
+            ))
+
+            # Ścisła synchronizacja z SQL, żeby frontend pokazywał to samo co sortuje baza
+            valid_prices = [
+                m.last_price for m in sorted_mappings
+                if m.is_active and m.is_available and m.last_price and m.last_price > 0
+                   and (not p.my_url or m.url != p.my_url)
+                   and (p.my_price * 0.2 <= m.last_price <= p.my_price * 5)
+            ]
+
+            row_pi = None
+            if valid_prices and p.my_price:
+                row_pi = round(((sum(valid_prices) / len(valid_prices)) / p.my_price) * 100, 1)
+
+            brand_data.append({
+                'product': p,
+                'mappings': sorted_mappings,
+                'price_index': row_pi
+            })
+
+    return render_template('brand_monitoring.html',
+                           project=project,
+                           available_brands=available_brands,
+                           brand=brand,
+                           brand_stats=brand_stats,
+                           brand_data=brand_data,
+                           pagination=pagination,
+                           current_filters={'brand': brand_id, 'sort': sort_by, 'order': sort_order})
+
 @app.route('/project/<int:project_id>/competitor/<int:shop_id>')
 @login_required
 def competitor_analysis(project_id, shop_id):
