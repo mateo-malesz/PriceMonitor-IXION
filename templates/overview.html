@@ -105,6 +105,84 @@
 
         <div class="row">
             <div class="col-md-8">
+<!-- NAGŁÓWEK SEKCJI -->
+                <div class="d-flex justify-content-between align-items-center mb-3 mt-2">
+                    <h5 class="fw-bolder mb-0 text-dark d-flex align-items-center">
+                        <div class="bg-primary bg-opacity-10 text-primary rounded d-flex align-items-center justify-content-center me-2" style="width: 32px; height: 32px;">
+                            <i class="bi bi-chat-left-text-fill fs-6"></i>
+                        </div>
+                        Aktywność Zespołu
+                    </h5>
+                    <a href="{{ url_for('project_activity', project_id=project.id) }}" class="btn btn-sm btn-outline-primary rounded-pill fw-bold px-3">
+                        Zobacz wszystkie <i class="bi bi-arrow-right ms-1"></i>
+                    </a>
+                </div>
+
+                <!-- LISTA KART Z KOMENTARZAMI (Styl z podstrony) -->
+                {% if recent_comments %}
+                    {% for comment in recent_comments %}
+                        <div class="card shadow-sm border-0 mb-4 rounded-4">
+                            <div class="card-body p-4">
+                                <!-- Nagłówek: Autor i data -->
+                                <div class="d-flex justify-content-between align-items-center mb-3">
+                                    <div class="d-flex align-items-center">
+                                        <img src="{{ comment.user.image_file }}" class="rounded-circle border shadow-sm me-2" style="width: 36px; height: 36px; object-fit: cover;">
+                                        <div>
+                                            <div class="fw-bold text-dark" style="line-height: 1.2;">{{ comment.user.email.split('@')[0] }}</div>
+                                            <small class="text-muted" style="font-size: 0.75rem;">Użytkownik systemu</small>
+                                        </div>
+                                    </div>
+                                    <span class="badge bg-light text-muted border">
+                                        <i class="bi bi-clock me-1"></i> {{ comment.created_at.strftime('%d.%m.%Y, %H:%M') }}
+                                    </span>
+                                </div>
+
+                                <!-- Treść -->
+                                <div class="text-dark mb-4" style="font-size: 0.95rem; white-space: pre-wrap; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;">{{ comment.content }}</div>
+
+                                <!-- Załączony Produkt -->
+                                <div class="card bg-light border-0 rounded-3">
+                                    <div class="card-body p-2 d-flex align-items-center">
+                                        <div class="bg-white rounded border d-flex justify-content-center align-items-center me-3 flex-shrink-0" style="width: 48px; height: 48px; padding: 2px;">
+                                            {% if comment.product.image_link %}
+                                                <img src="{{ comment.product.image_link }}" style="max-height: 40px; max-width: 40px; object-fit: contain;">
+                                            {% else %}
+                                                <i class="bi bi-box-seam text-muted"></i>
+                                            {% endif %}
+                                        </div>
+                                        <div class="min-vw-0 flex-grow-1 pe-2">
+                                            <a href="{{ url_for('product_details', project_id=project.id, product_id=comment.product.id) }}" class="fw-bold text-dark text-decoration-none text-truncate d-block" style="font-size: 0.85rem;">
+                                                {{ comment.product.title }}
+                                            </a>
+                                            <small class="text-muted font-monospace">SKU: {{ comment.product.sku or '-' }}</small>
+                                        </div>
+                                        <div class="ms-auto flex-shrink-0">
+                                            <a href="{{ url_for('product_details', project_id=project.id, product_id=comment.product.id) }}" class="btn btn-sm btn-dark rounded-pill px-3 fw-bold">
+                                                Zobacz <i class="bi bi-arrow-right ms-1"></i>
+                                            </a>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    {% endfor %}
+                    <div class="text-center mb-5">
+                        <small class="text-muted"><i class="bi bi-info-circle me-1"></i> Widok przedstawia 5 najnowszych aktywności.</small>
+                                        <a href="{{ url_for('project_activity', project_id=project.id) }}" class="btn btn-sm btn-outline-primary rounded-pill fw-bold px-3">
+                        Zobacz wszystkie <i class="bi bi-arrow-right ms-1"></i>
+                    </a>
+                    </div>
+                {% else %}
+                    <!-- Gdy brak komentarzy -->
+                    <div class="card shadow-sm border-0 mb-4 rounded-4">
+                        <div class="card-body text-center py-5 text-muted px-4">
+                            <div class="bg-light rounded-circle d-inline-flex align-items-center justify-content-center mb-3" style="width: 60px; height: 60px;">
+                                <i class="bi bi-chat-square-dots text-muted fs-3"></i>
+                            </div>
+                            <p class="small mb-0 text-muted">Brak najnowszych dyskusji.<br>Gdy zespół zacznie komentować produkty, wpisy pojawią się tutaj.</p>
+                        </div>
+                    </div>
+                {% endif %}
                 <div class="card shadow-sm border-0">
                     <div class="card-header bg-white py-3">
                         <h5 class="card-title fw-bold mb-0">
@@ -171,7 +249,7 @@
                         <h5 class="fw-bold mb-3"><i class="bi bi-shield-check me-2"></i>Status Systemu</h5>
                         <ul class="list-unstyled mb-0 small opacity-75">
                             <li class="mb-2 d-flex justify-content-between">
-                                <span>Wersja Aplikacji:</span> <strong>v2026.04.10</strong>
+                                <span>Wersja Aplikacji:</span> <strong>v2026.05.6</strong>
                             </li>
                             <li class="mb-2 d-flex justify-content-between">
                                 <span>Baza Danych:</span> <span class="text-success">Połączono</span>

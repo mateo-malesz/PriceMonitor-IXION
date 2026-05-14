@@ -3217,6 +3217,24 @@ def compare_projects(project_id):
                            only_in_p1=only_in_p1,
                            only_in_p2=only_in_p2)
 
+
+@app.route('/project/<int:project_id>/activity')
+@login_required
+def project_activity(project_id):
+    project = Project.query.get_or_404(project_id)
+    if current_user not in project.users:
+        flash('Brak dostępu.', category='error')
+        return redirect(url_for('projects'))
+
+    page = request.args.get('page', 1, type=int)
+
+    # Pobieranie komentarzy z paginacją po stronie serwera
+    pagination = ProductComment.query.join(Product).filter(
+        Product.project_id == project.id
+    ).order_by(ProductComment.created_at.desc()).paginate(page=page, per_page=15, error_out=False)
+
+    return render_template('activity.html', project=project, pagination=pagination)
+
 @app.route('/project/<int:project_id>/overview')
 @login_required
 def project_overview(project_id):
@@ -3262,13 +3280,19 @@ def project_overview(project_id):
 
     global_pi = round(sum(project_pi_list) / len(project_pi_list), 1) if project_pi_list else None
 
+    # --- NOWE: POBIERANIE OSTATNICH KOMENTARZY (ZESPOŁU) ---
+    recent_comments = ProductComment.query.join(Product).filter(
+        Product.project_id == project.id
+    ).order_by(ProductComment.created_at.desc()).limit(5).all()
+
     return render_template('overview.html',
                            project=project,
                            scans_today=scans_today,
                            errors_count=errors_count,
                            recent_activity=recent_activity,
                            last_scan_time=last_scan_time,
-                           global_pi=global_pi)
+                           global_pi=global_pi,
+                           recent_comments=recent_comments)
 
 # TWORZENIE ADMINA - inicjalizacja tylko przy pierwszym uruchomieniu
 @app.route('/create-admin')
