@@ -259,6 +259,22 @@ def get_current_price(url, session):
                     bdi_tag = price_span.find('bdi')
                     price = bdi_tag.get_text().strip() if bdi_tag else price_span.get_text().strip()
 
+        # DATALAYER (Google Analytics 4 / GTM)
+        if not price:
+            # Przeszukujemy wszystkie tagi <script> w poszukiwaniu dataLayer
+            script_tags = soup.find_all('script')
+            for script in script_tags:
+                if script.string and 'dataLayer.push' in script.string and 'ecommerce' in script.string:
+                    # Wyrażenie regularne, które szuka klucza 'value' lub 'price'
+                    # Radzi sobie z cudzysłowami (lub ich brakiem) oraz apostrofami.
+                    # Przykłady, które złapie: value: 3899, "value": 3899.00, 'price': "123,50"
+                    match = re.search(r'["\']?(?:value|price)["\']?\s*:\s*["\']?([\d.,]+)["\']?', script.string)
+
+                    if match:
+                        price = match.group(1)
+                        # Jeśli znaleźliśmy cenę, przerywamy pętlę i lecimy dalej
+                        break
+
         # FALLBACK SKLEPÓW
         if not price:
             if 'morele.net' in url:
