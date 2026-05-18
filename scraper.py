@@ -245,7 +245,13 @@ def get_current_price(url, session):
         # PLATFORMY
         if not price:
             idosell_elem = soup.find(id="projector_price_value")
-            if idosell_elem and idosell_elem.has_attr('data-price'): price = idosell_elem['data-price']
+            if idosell_elem:
+                # 1. Próba wyciągnięcia z atrybutu data-price
+                if idosell_elem.has_attr('data-price') and idosell_elem['data-price'].strip():
+                    price = idosell_elem['data-price']
+                # 2. Fallback: jeśli brak atrybutu, bierzemy czysty tekst ze środka
+                else:
+                    price = idosell_elem.get_text().strip()
             if not price:
                 presta_id = soup.find(id="our_price_display")
                 if presta_id:
@@ -329,9 +335,16 @@ def get_current_price(url, session):
                     if part1 and part2:
                         price = part1.get_text().replace(',', '') + '.' + part2.get_text()
             elif 'empik.com' in url:
-                section = soup.find('section', attrs={'data-product-price': True})
-                if section:
-                    price = section.get('data-product-price')
+                # 1. Nowy sposób: szukamy po stabilnym atrybucie testowym
+                elem = soup.find(attrs={'data-ta': 'price'})
+                if elem:
+                    price = elem.get_text().strip()
+
+                # 2. Stary sposób: zostawiamy w zapasie (może działać na starszych układach)
+                if not price:
+                    section = soup.find('section', attrs={'data-product-price': True})
+                    if section:
+                        price = section.get('data-product-price')
             elif 'kaufland.pl' in url:
                 elem = soup.find('span', attrs={'data-test': 'product-price'})
                 if elem:
@@ -378,6 +391,10 @@ def get_current_price(url, session):
                 elem = soup.find('div', id='ms-product-sheet-price')
                 if elem and elem.find('ins'):
                     price = elem.find('ins').get_text().strip()
+            elif 'xl.games' in url:
+                elem = soup.find('em', class_='main-price')
+                if elem:
+                    price = elem.get_text().strip()
 
         # TEKST
         if available:
