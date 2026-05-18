@@ -21,7 +21,7 @@ import csv
 import io
 import logging
 from logging.handlers import RotatingFileHandler
-from sqlalchemy import func, case
+from sqlalchemy import func, case, or_
 from dotenv import load_dotenv
 from threading import Thread
 from flask import current_app
@@ -244,6 +244,21 @@ class Product(db.Model):
                 is_my_link = True
             if not is_my_link:
                 count += 1
+        return count
+
+    @property
+    def broken_competitor_count(self):
+        count = 0
+        for mapping in self.mappings:
+            # Bierzemy pod uwagę tylko aktywne i uszkodzone (brak ceny) linki
+            if mapping.is_active and (mapping.last_price is None or mapping.last_price == 0):
+                is_my_link = False
+                if self.my_url and (mapping.url.strip() == self.my_url.strip()):
+                    is_my_link = True
+
+                # Wykluczamy własny sklep
+                if not is_my_link:
+                    count += 1
         return count
 
     def __str__(self):
@@ -778,10 +793,13 @@ def project_dashboard(project_id):
     if availability_filter:
         query = query.filter(Product.availability == availability_filter)
 
+    from sqlalchemy import or_
+
     if filter_type == 'errors':
         query = query.join(ProductMapping).filter(
             ProductMapping.is_active == True,
-            (ProductMapping.last_price == None) | (ProductMapping.last_price == 0)
+            (ProductMapping.last_price == None) | (ProductMapping.last_price == 0),
+            or_(Product.my_url == None, ProductMapping.url != Product.my_url)
         ).distinct()
 
     # Sortowanie
@@ -807,14 +825,20 @@ def project_dashboard(project_id):
         else:
             query = query.order_by(Product.my_price.asc())
     elif sort_by == 'status':
-        # Sortowanie po liczbie konkurentów (competitor_count)
-        # Musimy użyć podzapytania lub zliczenia w zapytaniu głównym
-
-        # Podzapytanie liczące mappingi, które NIE są linkiem własnym
-        stmt = db.session.query(func.count(ProductMapping.id)).filter(
-            ProductMapping.product_id == Product.id,
-            ProductMapping.url != Product.my_url
-        ).scalar_subquery()
+        if filter_type == 'errors':
+            # W trybie naprawczym sortujemy po ilości BŁĘDNYCH linków konkurencji
+            stmt = db.session.query(func.count(ProductMapping.id)).filter(
+                ProductMapping.product_id == Product.id,
+                ProductMapping.is_active == True,
+                (ProductMapping.last_price == None) | (ProductMapping.last_price == 0),
+                or_(Product.my_url == None, ProductMapping.url != Product.my_url)
+            ).correlate(Product).scalar_subquery()
+        else:
+            # W normalnym trybie sortujemy po łącznej ilości linków konkurencji
+            stmt = db.session.query(func.count(ProductMapping.id)).filter(
+                ProductMapping.product_id == Product.id,
+                ProductMapping.url != Product.my_url
+            ).correlate(Product).scalar_subquery()
 
         if sort_order == 'desc':
             query = query.order_by(stmt.desc())
@@ -1744,7 +1768,7 @@ def delete_mapping(project_id, mapping_id):
     db.session.commit()
 
     flash('Link do konkurencji usunięty.', category='success')
-    return redirect(url_for('product_details', project_id=project_id, product_id=product_id))
+    return redirect(request.referrer or url_for('product_details', project_id=project_id, product_id=product_id))
 
 
 @app.route('/project/<int:project_id>/schedule/add', methods=['POST'])
@@ -2500,6 +2524,69 @@ def project_analysis(project_id):
                            opportunities=opportunities,
                            threats=threats)
 
+# @app.route('/project/<int:project_id>/competitors')
+# @login_required
+# def competitors_list(project_id):
+#     project = Project.query.get_or_404(project_id)
+#     if current_user not in project.users:
+#         flash('Brak dostępu.', category='error')
+#         return redirect(url_for('projects'))
+#
+#     search_query = request.args.get('q', '')
+#     sort_by = request.args.get('sort', 'shared_count')
+#     sort_order = request.args.get('order', 'desc')
+#     page = request.args.get('page', 1, type=int)
+#     view_mode = request.args.get('view', 'grid') # Tryb wyświetlania (grid/list)
+#
+#     from sqlalchemy import func, case, or_
+#
+#     pi_expr = (ProductMapping.last_price / Product.my_price) * 100
+#     shared_count_expr = func.count(Product.id)
+#     avg_pi_expr = func.avg(pi_expr)
+#     cheaper_count_expr = func.sum(case((ProductMapping.last_price < Product.my_price, 1), else_=0))
+#
+#     query = db.session.query(
+#         Shop,
+#         shared_count_expr.label('shared_count'),
+#         avg_pi_expr.label('avg_pi'),
+#         cheaper_count_expr.label('cheaper_count')
+#     ).select_from(ProductMapping).join(Product).join(Shop).filter(
+#         Product.project_id == project.id,
+#         Product.is_active == True,
+#         Product.my_price > 0,
+#         ProductMapping.is_active == True,
+#         ProductMapping.is_available == True,
+#         ProductMapping.last_price > 0,
+#         or_(Product.my_url == None, ProductMapping.url != Product.my_url),
+#         ProductMapping.last_price >= Product.my_price * 0.2,
+#         ProductMapping.last_price <= Product.my_price * 5
+#     )
+#
+#     if search_query:
+#         query = query.filter(
+#             or_(Shop.name.ilike(f'%{search_query}%'), Shop.domain.ilike(f'%{search_query}%'))
+#         )
+#
+#     query = query.group_by(Shop.id)
+#
+#     if sort_by == 'name':
+#         query = query.order_by(Shop.name.desc() if sort_order == 'desc' else Shop.name.asc())
+#     elif sort_by == 'shared_count':
+#         query = query.order_by(shared_count_expr.desc() if sort_order == 'desc' else shared_count_expr.asc())
+#     elif sort_by == 'avg_pi':
+#         query = query.order_by(avg_pi_expr.desc() if sort_order == 'desc' else avg_pi_expr.asc())
+#     elif sort_by == 'cheaper_count':
+#         query = query.order_by(cheaper_count_expr.desc() if sort_order == 'desc' else cheaper_count_expr.asc())
+#
+#     pagination = query.paginate(page=page, per_page=20, error_out=False)
+#     competitor_stats = pagination.items
+#
+#     return render_template('competitors_list.html',
+#                            project=project,
+#                            competitor_stats=competitor_stats,
+#                            pagination=pagination,
+#                            current_filters={'q': search_query, 'sort': sort_by, 'order': sort_order, 'view': view_mode})
+
 @app.route('/project/<int:project_id>/competitors')
 @login_required
 def competitors_list(project_id):
@@ -2512,30 +2599,47 @@ def competitors_list(project_id):
     sort_by = request.args.get('sort', 'shared_count')
     sort_order = request.args.get('order', 'desc')
     page = request.args.get('page', 1, type=int)
-    view_mode = request.args.get('view', 'grid') # Tryb wyświetlania (grid/list)
+    view_mode = request.args.get('view', 'grid')
 
     from sqlalchemy import func, case, or_
 
-    pi_expr = (ProductMapping.last_price / Product.my_price) * 100
-    shared_count_expr = func.count(Product.id)
-    avg_pi_expr = func.avg(pi_expr)
-    cheaper_count_expr = func.sum(case((ProductMapping.last_price < Product.my_price, 1), else_=0))
+    # 1. Definiujemy warunek dla POPRAWNEGO linku (dla starych statystyk)
+    valid_condition = (
+            (ProductMapping.is_active == True) &
+            (ProductMapping.is_available == True) &
+            (ProductMapping.last_price > 0) &
+            (ProductMapping.last_price >= Product.my_price * 0.2) &
+            (ProductMapping.last_price <= Product.my_price * 5)
+    )
 
+    # 2. Definiujemy warunek dla ZEPSUTEGO linku (brak ceny)
+    broken_condition = (
+            (ProductMapping.is_active == True) &
+            ((ProductMapping.last_price == None) | (ProductMapping.last_price == 0))
+    )
+
+    pi_expr = (ProductMapping.last_price / Product.my_price) * 100
+
+    # 3. Zliczanie za pomocą sum(case(...)) pozwala grupować wszystko naraz
+    shared_count_expr = func.count(Product.id)
+    avg_pi_expr = func.avg(case((valid_condition, pi_expr), else_=None))
+    cheaper_count_expr = func.sum(case((valid_condition & (ProductMapping.last_price < Product.my_price), 1), else_=0))
+
+    # NOWOŚĆ: Sumujemy zepsute linki dla sklepu
+    broken_count_expr = func.sum(case((broken_condition, 1), else_=0))
+
+    # 4. Główne zapytanie - celowo wyrzuciłem last_price > 0 z .filter(), żeby złapać też sklepy totalnie "leżące"
     query = db.session.query(
         Shop,
         shared_count_expr.label('shared_count'),
         avg_pi_expr.label('avg_pi'),
-        cheaper_count_expr.label('cheaper_count')
+        cheaper_count_expr.label('cheaper_count'),
+        broken_count_expr.label('broken_count')  # <--- Nasza nowa kolumna
     ).select_from(ProductMapping).join(Product).join(Shop).filter(
         Product.project_id == project.id,
         Product.is_active == True,
         Product.my_price > 0,
-        ProductMapping.is_active == True,
-        ProductMapping.is_available == True,
-        ProductMapping.last_price > 0,
-        or_(Product.my_url == None, ProductMapping.url != Product.my_url),
-        ProductMapping.last_price >= Product.my_price * 0.2,
-        ProductMapping.last_price <= Product.my_price * 5
+        or_(Product.my_url == None, ProductMapping.url != Product.my_url)
     )
 
     if search_query:
@@ -2545,6 +2649,7 @@ def competitors_list(project_id):
 
     query = query.group_by(Shop.id)
 
+    # 5. Rozbudowane sortowanie (w tym po błędach)
     if sort_by == 'name':
         query = query.order_by(Shop.name.desc() if sort_order == 'desc' else Shop.name.asc())
     elif sort_by == 'shared_count':
@@ -2553,6 +2658,8 @@ def competitors_list(project_id):
         query = query.order_by(avg_pi_expr.desc() if sort_order == 'desc' else avg_pi_expr.asc())
     elif sort_by == 'cheaper_count':
         query = query.order_by(cheaper_count_expr.desc() if sort_order == 'desc' else cheaper_count_expr.asc())
+    elif sort_by == 'broken_count':
+        query = query.order_by(broken_count_expr.desc() if sort_order == 'desc' else broken_count_expr.asc())
 
     pagination = query.paginate(page=page, per_page=20, error_out=False)
     competitor_stats = pagination.items
@@ -2994,6 +3101,64 @@ def brand_monitoring(project_id):
                            pagination=pagination,
                            current_filters={'brand': brand_id, 'sort': sort_by, 'order': sort_order})
 
+# @app.route('/project/<int:project_id>/competitor/<int:shop_id>')
+# @login_required
+# def competitor_analysis(project_id, shop_id):
+#     project = Project.query.get_or_404(project_id)
+#     if current_user not in project.users:
+#         flash('Brak dostępu.', category='error')
+#         return redirect(url_for('projects'))
+#
+#     shop = Shop.query.get_or_404(shop_id)
+#
+#     # Szukamy aktywnych powiązań tego sklepu w tym projekcie
+#     mappings = ProductMapping.query.join(Product).filter(
+#         Product.project_id == project.id,
+#         Product.is_active == True,
+#         Product.my_price > 0,
+#         ProductMapping.shop_id == shop.id,
+#         ProductMapping.is_active == True,
+#         ProductMapping.is_available == True,
+#         ProductMapping.last_price > 0
+#     ).all()
+#
+#     overlap_count = 0
+#     pi_list = []
+#     conflict_list = []  # Tzw. "Lista zapalna"
+#
+#     for m in mappings:
+#         p = m.product
+#         # Filtrujemy anomalie i odrzucamy Twój własny sklep
+#         if (not p.my_url or m.url.strip() != p.my_url.strip()) and (p.my_price * 0.2 <= m.last_price <= p.my_price * 5):
+#             overlap_count += 1
+#
+#             # Tutaj liczymy JEGO Price Index (Jego Cena / Twoja Cena * 100)
+#             pi = (m.last_price / p.my_price) * 100
+#             pi_list.append(pi)
+#
+#             # Jeśli jego PI < 100, to znaczy, że on jest tańszy od Ciebie
+#             if pi < 100:
+#                 conflict_list.append({
+#                     'product': p,
+#                     'his_price': m.last_price,
+#                     'my_price': p.my_price,
+#                     'pi': round(pi, 1),
+#                     'diff_pln': round(p.my_price - m.last_price, 2),
+#                     'url': m.url
+#                 })
+#
+#     avg_pi = round(sum(pi_list) / len(pi_list), 1) if pi_list else None
+#
+#     # Sortujemy "listę zapalną" od produktów, gdzie podcina nas najmocniej (najniższe PI na górze)
+#     conflict_list = sorted(conflict_list, key=lambda x: x['pi'])
+#
+#     return render_template('competitor_analysis.html',
+#                            project=project,
+#                            shop=shop,
+#                            overlap_count=overlap_count,
+#                            avg_pi=avg_pi,
+#                            conflict_list=conflict_list)
+
 @app.route('/project/<int:project_id>/competitor/<int:shop_id>')
 @login_required
 def competitor_analysis(project_id, shop_id):
@@ -3004,45 +3169,50 @@ def competitor_analysis(project_id, shop_id):
 
     shop = Shop.query.get_or_404(shop_id)
 
-    # Szukamy aktywnych powiązań tego sklepu w tym projekcie
+    # Pobieramy WSZYSTKIE aktywne linki tego sklepu dla tego projektu
     mappings = ProductMapping.query.join(Product).filter(
         Product.project_id == project.id,
         Product.is_active == True,
-        Product.my_price > 0,
         ProductMapping.shop_id == shop.id,
-        ProductMapping.is_active == True,
-        ProductMapping.is_available == True,
-        ProductMapping.last_price > 0
+        ProductMapping.is_active == True
     ).all()
 
     overlap_count = 0
     pi_list = []
-    conflict_list = []  # Tzw. "Lista zapalna"
+    conflict_list = []  # "Lista zapalna"
+    broken_list = []  # NOWOŚĆ: Lista zepsutych linków
 
     for m in mappings:
         p = m.product
-        # Filtrujemy anomalie i odrzucamy Twój własny sklep
-        if (not p.my_url or m.url.strip() != p.my_url.strip()) and (p.my_price * 0.2 <= m.last_price <= p.my_price * 5):
-            overlap_count += 1
 
-            # Tutaj liczymy JEGO Price Index (Jego Cena / Twoja Cena * 100)
-            pi = (m.last_price / p.my_price) * 100
-            pi_list.append(pi)
+        # Sprawdzamy czy link jest zepsuty (brak ceny)
+        if m.last_price is None or m.last_price == 0:
+            broken_list.append({
+                'mapping_id': m.id,
+                'product': p,
+                'url': m.url
+            })
+        # W przeciwnym razie analizujemy ceny (jeśli my mamy zdefiniowaną cenę)
+        elif p.my_price and p.my_price > 0:
+            # Odfiltrowujemy Twój własny sklep i anomalie
+            if (not p.my_url or m.url.strip() != p.my_url.strip()) and (
+                    p.my_price * 0.2 <= m.last_price <= p.my_price * 5):
+                overlap_count += 1
 
-            # Jeśli jego PI < 100, to znaczy, że on jest tańszy od Ciebie
-            if pi < 100:
-                conflict_list.append({
-                    'product': p,
-                    'his_price': m.last_price,
-                    'my_price': p.my_price,
-                    'pi': round(pi, 1),
-                    'diff_pln': round(p.my_price - m.last_price, 2),
-                    'url': m.url
-                })
+                pi = (m.last_price / p.my_price) * 100
+                pi_list.append(pi)
+
+                if pi < 100:
+                    conflict_list.append({
+                        'product': p,
+                        'his_price': m.last_price,
+                        'my_price': p.my_price,
+                        'pi': round(pi, 1),
+                        'diff_pln': round(p.my_price - m.last_price, 2),
+                        'url': m.url
+                    })
 
     avg_pi = round(sum(pi_list) / len(pi_list), 1) if pi_list else None
-
-    # Sortujemy "listę zapalną" od produktów, gdzie podcina nas najmocniej (najniższe PI na górze)
     conflict_list = sorted(conflict_list, key=lambda x: x['pi'])
 
     return render_template('competitor_analysis.html',
@@ -3050,8 +3220,8 @@ def competitor_analysis(project_id, shop_id):
                            shop=shop,
                            overlap_count=overlap_count,
                            avg_pi=avg_pi,
-                           conflict_list=conflict_list)
-
+                           conflict_list=conflict_list,
+                           broken_list=broken_list)  # Przekazujemy zepsute linki do szablonu
 
 def send_async_email(app, msg):
     with app.app_context():
@@ -3253,7 +3423,8 @@ def project_overview(project_id):
     errors_count = ProductMapping.query.join(Product).filter(
         Product.project_id == project.id,
         ProductMapping.is_active == True,
-        (ProductMapping.last_price == None) | (ProductMapping.last_price == 0)
+        (ProductMapping.last_price == None) | (ProductMapping.last_price == 0),
+        or_(Product.my_url == None, ProductMapping.url != Product.my_url)  # <--- TO JEST NOWE
     ).count()
 
     recent_activity = db.session.query(PriceHistory).join(ProductMapping).join(Product).join(Shop).filter(

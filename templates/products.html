@@ -307,14 +307,20 @@
         {% endif %}
     </td>
 <td class="text-center">
-        {% if product.competitor_count > 0 %}
-            <span class="badge bg-success-subtle text-success border border-success-subtle px-2 py-1 rounded-2">
-                Monitorowany ({{ product.competitor_count }})
+        {% if current_filters.filter == 'errors' %}
+            <span class="badge bg-danger-subtle text-danger border border-danger-subtle px-2 py-1 rounded-2" title="Liczba uszkodzonych linków konkurencji">
+                <i class="bi bi-exclamation-triangle-fill me-1"></i> Błędy: {{ product.broken_competitor_count }}
             </span>
         {% else %}
-            <span class="badge bg-warning-subtle text-dark border border-warning-subtle px-2 py-1 rounded-2">
-                Brak linków
-            </span>
+            {% if product.competitor_count > 0 %}
+                <span class="badge bg-success-subtle text-success border border-success-subtle px-2 py-1 rounded-2">
+                    Monitorowany ({{ product.competitor_count }})
+                </span>
+            {% else %}
+                <span class="badge bg-warning-subtle text-dark border border-warning-subtle px-2 py-1 rounded-2">
+                    Brak linków
+                </span>
+            {% endif %}
         {% endif %}
     </td>
 

@@ -74,11 +74,12 @@
 
 {% if current_filters.view != 'list' %}
 <div class="row g-3">
-    {% for row in competitor_stats %}
-        {% set shop = row[0] %}
-        {% set shared_count = row[1] %}
-        {% set avg_pi = row[2] %}
-        {% set cheaper_count = row[3] %}
+{% for row in competitor_stats %}
+    {% set shop = row[0] %}
+    {% set shared_count = row[1] %}
+    {% set avg_pi = row[2] %}
+    {% set cheaper_count = row[3] %}
+    {% set broken_count = row[4] %}
     <div class="col-md-4 col-lg-3">
         <a href="{{ url_for('competitor_analysis', project_id=project.id, shop_id=shop.id) }}" class="text-decoration-none">
             <div class="card shadow-sm border-0 h-100 hover-shadow transition rounded-4 bg-white">
@@ -92,17 +93,21 @@
                     </div>
                     <h6 class="fw-bold text-dark mb-1">{{ shop.name }}</h6>
                     <small class="text-muted d-block mb-3">{{ shop.domain }}</small>
-
-                    <div class="d-flex justify-content-center gap-2 mt-auto">
-                        <span class="badge bg-light text-dark border px-2 py-1" title="Wspólne produkty">
-                            <i class="bi bi-box-seam"></i> {{ shared_count }}
-                        </span>
-                        {% if cheaper_count > 0 %}
-                            <span class="badge bg-danger-subtle text-danger px-2 py-1" title="Produkty na których są tańsi">
-                                <i class="bi bi-fire"></i> {{ cheaper_count }}
-                            </span>
-                        {% endif %}
-                    </div>
+<div class="d-flex justify-content-center gap-2 mt-auto">
+    <span class="badge bg-light text-dark border px-2 py-1" title="Wspólne produkty">
+        <i class="bi bi-box-seam"></i> {{ shared_count }}
+    </span>
+    {% if cheaper_count > 0 %}
+        <span class="badge bg-danger-subtle text-danger px-2 py-1" title="Produkty na których są tańsi">
+            <i class="bi bi-fire"></i> {{ cheaper_count }}
+        </span>
+    {% endif %}
+    {% if broken_count > 0 %}
+        <span class="badge bg-danger text-white px-2 py-1" title="Zepsute linki (404)">
+            <i class="bi bi-bug-fill"></i> {{ broken_count }}
+        </span>
+    {% endif %}
+</div>
                 </div>
             </div>
         </a>
@@ -132,16 +137,18 @@
                     <tr>
                         <th class="ps-4 py-3 w-25">{{ sort_link('name', 'Sklep') }}</th>
                         <th class="text-center py-3">{{ sort_link('shared_count', 'Wspólne Produkty') }}</th>
+                        <th class="text-center py-3">{{ sort_link('broken_count', 'Błędy (404)') }}</th>
                         <th class="text-center py-3">{{ sort_link('avg_pi', 'Średni Price Index') }}</th>
                         <th class="text-center py-3 pe-4">{{ sort_link('cheaper_count', 'Zagrożenia (On tańszy)') }}</th>
                     </tr>
                 </thead>
                 <tbody>
-                    {% for row in competitor_stats %}
-                        {% set shop = row[0] %}
-                        {% set shared_count = row[1] %}
-                        {% set avg_pi = row[2] %}
-                        {% set cheaper_count = row[3] %}
+{% for row in competitor_stats %}
+    {% set shop = row[0] %}
+    {% set shared_count = row[1] %}
+    {% set avg_pi = row[2] %}
+    {% set cheaper_count = row[3] %}
+    {% set broken_count = row[4] %}
                     <tr>
                         <td class="ps-4 py-3">
                             <div class="d-flex align-items-center">
@@ -165,6 +172,18 @@
                         <td class="text-center text-secondary fw-bold">
                             {{ shared_count }}
                         </td>
+
+<td class="text-center">
+    {% if broken_count > 0 %}
+        <span class="badge bg-danger-subtle text-danger border border-danger-subtle px-2 py-1 rounded-2" title="Zepsute linki (404)">
+            <i class="bi bi-bug-fill me-1"></i> {{ broken_count }}
+        </span>
+    {% else %}
+        <span class="badge bg-light text-muted border px-2 py-1 rounded-2">
+            Brak
+        </span>
+    {% endif %}
+</td>
 
                         <td class="text-center">
                             {% if avg_pi %}
