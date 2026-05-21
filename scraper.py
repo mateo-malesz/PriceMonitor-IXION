@@ -12,6 +12,7 @@ from urllib3.util.retry import Retry
 import logging
 import socket
 import concurrent.futures
+from curl_cffi import requests as curl_requests
 
 logger = logging.getLogger(__name__)
 socket.setdefaulttimeout(30)
@@ -108,8 +109,9 @@ def close_batch_session(session):
         logger.info("--- SESJA I PROXY ZAKOŃCZONE ---")
 
 
-def get_current_price(url, session):
+def get_current_price(url, session, return_html=False):
     logger.info(f"[SCAN] START: {url}")
+    raw_html = ""  # Zmienna do trzymania surowego kodu
     try:
         time.sleep(random.uniform(0.5, 1.5))
 
@@ -119,10 +121,41 @@ def get_current_price(url, session):
             logger.info(f"[SCAN] STATUS: {response.status_code} | {url}")
         except Exception as e:
             logger.error(f"[SCAN] BŁĄD POŁĄCZENIA: {e} | {url}")
-            return None, False
+            error_str = str(e).lower()
+            # Wkracza curl_cffi TYLKO dla błędów SSL/EOF lub zerwanego połączenia
+            if 'ssl' in error_str or 'eof' in error_str or 'connection' in error_str:
+                logger.warning(f"[!] Wykryto twardą blokadę SSL. Wytaczam superbroń: curl_cffi (impersonate=chrome)...")
+
+                # Wyciągamy aktualne proxy z sesji, żeby curl_cffi wiedział, jak się połączyć
+                current_proxies = None
+                if session.proxies and 'https' in session.proxies:
+                    current_proxies = {"http": session.proxies['http'], "https": session.proxies['https']}
+
+                try:
+                    # Odpalamy zapytanie udające idealnie przeglądarkę Chrome
+                    # curl_cffi ma świetnie zaimplementowane timeouty na poziomie języka C, więc nie musimy używać fetch_with_hard_timeout
+                    response = curl_requests.get(
+                        url,
+                        impersonate="chrome110",
+                        proxies=current_proxies,
+                        timeout=30
+                    )
+                    logger.info(f"[SCAN] STATUS (Uratowano przez curl_cffi): {response.status_code} | {url}")
+
+                except Exception as curl_e:
+                    logger.error(f"[!] curl_cffi również poległ: {curl_e}")
+                    if return_html: return None, False, raw_html
+                    return None, False
+            else:
+                # To był zwykły błąd, a nie blokada SSL
+                logger.error(f"[SCAN] BŁĄD POŁĄCZENIA: {e} | {url}")
+                if return_html: return None, False, raw_html
+                return None, False
+
         # Jeśli błędy 400-500 (np. ban 403), używamy Cloudscrapera, zachowując TO SAMO PROXY
         if response.status_code in [404, 410]:
             logger.error(f"[!] Produkt nie istnieje (Błąd {response.status_code}): {url}")
+            if return_html: return None, False, raw_html
             return None, False
         if response.status_code in [401, 403, 429, 503]:
             logger.warning(f"[!] Sklep zablokował dostęp (Błąd {response.status_code}). Odpalam Cloudscraper...")
@@ -138,13 +171,16 @@ def get_current_price(url, session):
                 response = fetch_with_hard_timeout(scraper.get, url, timeout_sec=30)
             except Exception as e:
                 logger.error(f"[!] Cloudscraper też wyrzucił błąd: {e}")
+                if return_html: return None, False, raw_html
                 return None, False
 
         if response.status_code != 200:
             logger.error(f"Ostateczny błąd HTTP: {response.status_code} dla {url}")
+            if return_html: return None, False, raw_html
             return None, False
 
         if response.status_code == 200:
+            raw_html = response.text  # Zapisujemy HTML, jeśli strona odpowiedziała
             if 'arante.pl' in url:
                 logger.info(
                     f"[ARANTE] Status 200, długość HTML: {len(response.content)}, tytuł: {BeautifulSoup(response.content, 'html.parser').title}")
@@ -163,12 +199,14 @@ def get_current_price(url, session):
                     response = fetch_with_hard_timeout(scraper.get, url, timeout_sec=30)
                 except Exception as e:
                     logger.error(f"[!] Cloudscraper błąd: {e}")
+                    if return_html: return None, False, raw_html
                     return None, False
 
         # --- PARSOWANIE ---
         soup = BeautifulSoup(response.content, 'html.parser')
         price = None
         available = True
+        meta_avail_found = False
 
         # SCHEMA.ORG (JSON-LD)
         scripts = soup.find_all('script', type='application/ld+json')
@@ -198,6 +236,7 @@ def get_current_price(url, session):
                         # 1. Klasyczny, prosty format
                         if 'price' in offer:
                             price = float(offer['price'])
+                            logger.info("[DEBUG] Znaleziono cenę przez Schema.org (offers)")
                         # 2. Format rozszerzony z priceSpecification (jak na kodujmata.pl)
                         elif 'priceSpecification' in offer:
                             price_specs = offer['priceSpecification']
@@ -205,8 +244,10 @@ def get_current_price(url, session):
                             spec = price_specs[0] if isinstance(price_specs, list) else price_specs
                             if isinstance(spec, dict) and 'price' in spec:
                                 price = float(spec['price'])
+                                logger.info(f"[PARSER] Trafienie: Schema.org (priceSpecification) -> {price}")
 
                     if 'availability' in offer:
+                        meta_avail_found = True
                         avail_url = offer['availability']
                         if 'OutOfStock' in avail_url or 'Discontinued' in avail_url or 'SoldOut' in avail_url:
                             available = False
@@ -221,11 +262,13 @@ def get_current_price(url, session):
             if meta_price:
                 try:
                     price = float(meta_price.get("content"))
+                    logger.info(f"[PARSER] Trafienie: Meta Tag (product:price:amount) -> {price}")
                 except:
                     pass
 
         meta_avail = soup.find("meta", property="product:availability")
         if meta_avail:
+            meta_avail_found = True
             content = meta_avail["content"].lower()
             if "oos" in content or "out of stock" in content or "unavailable" in content: available = False
 
@@ -236,11 +279,12 @@ def get_current_price(url, session):
                 candidate_price = microdata_price.get("content") or microdata_price.get_text()
                 if candidate_price: price = candidate_price
 
-            microdata_avail = soup.find(attrs={"itemprop": "availability"})
-            if microdata_avail:
-                avail_value = microdata_avail.get("content") or microdata_avail.get("href")
-                if avail_value and (
-                        "OutOfStock" in avail_value or "SoldOut" in avail_value or "Discontinued" in avail_value): available = False
+        microdata_avail = soup.find(attrs={"itemprop": "availability"})
+        if microdata_avail:
+            meta_avail_found = True
+            avail_value = microdata_avail.get("content") or microdata_avail.get("href")
+            if avail_value and (
+                    "OutOfStock" in avail_value or "SoldOut" in avail_value or "Discontinued" in avail_value): available = False
 
         # PLATFORMY
         if not price:
@@ -249,36 +293,68 @@ def get_current_price(url, session):
                 # 1. Próba wyciągnięcia z atrybutu data-price
                 if idosell_elem.has_attr('data-price') and idosell_elem['data-price'].strip():
                     price = idosell_elem['data-price']
+                    logger.info(f"[PARSER] Trafienie: IdoSell (data-price) -> {price}")
                 # 2. Fallback: jeśli brak atrybutu, bierzemy czysty tekst ze środka
                 else:
                     price = idosell_elem.get_text().strip()
+                    logger.info(f"[PARSER] Trafienie: IdoSell (text) -> {price}")
             if not price:
                 presta_id = soup.find(id="our_price_display")
                 if presta_id:
                     price = presta_id.get_text()
+                    logger.info(f"[PARSER] Trafienie: Presta -> {price}")
                 else:
                     presta_class = soup.find(class_="current-price")
-                    if presta_class: price = presta_class.get_text()
+                    if presta_class:
+                        price = presta_class.get_text()
+                        logger.info(f"[PARSER] Trafienie: Presta (text) -> {price}")
             if not price:
                 price_span = soup.find('span', class_='woocommerce-Price-amount')
                 if price_span:
                     bdi_tag = price_span.find('bdi')
                     price = bdi_tag.get_text().strip() if bdi_tag else price_span.get_text().strip()
+                    logger.info(f"[PARSER] Trafienie: Woocommerce -> {price}")
 
-        # DATALAYER (Google Analytics 4 / GTM)
+        # DATALAYER (Google Analytics 4 / GTM / Zmienne JS)
         if not price:
-            # Przeszukujemy wszystkie tagi <script> w poszukiwaniu dataLayer
             script_tags = soup.find_all('script')
             for script in script_tags:
-                if script.string and 'dataLayer.push' in script.string and 'ecommerce' in script.string:
-                    # Wyrażenie regularne, które szuka klucza 'value' lub 'price'
-                    # Radzi sobie z cudzysłowami (lub ich brakiem) oraz apostrofami.
-                    # Przykłady, które złapie: value: 3899, "value": 3899.00, 'price': "123,50"
+                if not script.string:
+                    continue
+
+                # 1. Obsługa GTM / GA4
+                if (
+                        ('dataLayer.push' in script.string and 'ecommerce' in script.string) or
+                        'gtag("event"' in script.string or
+                        "gtag('event'" in script.string
+                ):
                     match = re.search(r'["\']?(?:value|price)["\']?\s*:\s*["\']?([\d.,]+)["\']?', script.string)
 
                     if match:
-                        price = match.group(1)
-                        # Jeśli znaleźliśmy cenę, przerywamy pętlę i lecimy dalej
+                        price = match.group(1).rstrip(',.')
+                        logger.info(f"[PARSER] Trafienie: DataLayer / gtag -> {price}")
+                        break
+
+                # 2. NOWOŚĆ: Obsługa zmiennej RC_VARS (np. lunaoptic.pl / sStore)
+                elif 'var RC_VARS' in script.string:
+                    # Szukamy ceny brutto (sprawdzamy dwa możliwe klucze dla pewności)
+                    price_match = re.search(r'"(?:gross_price|products_price_brutto)"\s*:\s*"([\d.]+)"',script.string)
+                    if price_match:
+                        price = price_match.group(1)
+                        logger.info(f"[PARSER] Trafienie: Zmienna JS (RC_VARS) -> {price}")
+
+                    # Szukamy ilości (quantity), żeby od razu bezbłędnie zaktualizować dostępność
+                    qty_match = re.search(r'"quantity"\s*:\s*(\d+)', script.string)
+                    if qty_match:
+                        qty = int(qty_match.group(1))
+                        if qty <= 0:
+                            available = False
+                            meta_avail_found = True  # Zabezpieczamy przed skanowaniem tekstu na dole!
+                            logger.info(f"[PARSER] INFO: RC_VARS wskazuje brak na magazynie (quantity: {qty})")
+                        else:
+                            meta_avail_found = True  # Produkt dostępny, blokujemy skanowanie tekstu
+
+                    if price:
                         break
 
         # FALLBACK SKLEPÓW
@@ -367,10 +443,32 @@ def get_current_price(url, session):
                     raw_price = price_element.text.strip()
                     if raw_price: price = raw_price
             elif 'akademia-umyslu.pl' in url:
-                price_element = soup.find('span', id='price_mob_span')
-                if price_element:
-                    raw_price = price_element.text.strip()
-                    if raw_price: price = raw_price
+                # PLAN A: Szukamy wszystkich ukrytych wariantów i bierzemy najtańszy
+                variant_inputs = soup.find_all('input', class_='version_price')
+                if variant_inputs:
+                    variant_prices = []
+                    for vi in variant_inputs:
+                        val = vi.get('value')
+                        if val:
+                            try:
+                                # Zamieniamy na float, żeby móc łatwo znaleźć wartość minimalną
+                                variant_prices.append(float(val.replace(',', '.')))
+                            except ValueError:
+                                pass
+
+                    if variant_prices:
+                        # Bierzemy najniższą cenę z dostępnych wariantów
+                        price = str(min(variant_prices))
+                        logger.info(f"[PARSER] Trafienie: Fallback (akademia-umyslu.pl - najtańszy wariant) -> {price}")
+
+                # PLAN B: Jeśli strona nie ma wariantów, bierzemy głównego spana
+                if not price or price == '':
+                    price_element = soup.find('span', id='price_mob_span')
+                    if price_element:
+                        raw_price = price_element.text.strip()
+                        if raw_price:
+                            price = raw_price
+                            logger.info(f"[PARSER] Trafienie: Fallback (akademia-umyslu.pl - span) -> {price}")
             elif 'atabi.pl' in url:
                 elem = soup.find('div', class_='meta-price')
                 if elem and elem.find('span'):
@@ -397,13 +495,14 @@ def get_current_price(url, session):
                     price = elem.get_text().strip()
 
         # TEKST
-        if available:
+        if available and not meta_avail_found:
             text_content = soup.get_text().lower()
             keywords_unavailable = ["brak w magazynie", "produkt niedostępny", "wyprzedany", "oczekiwanie na dostawę",
                                     "powiadom o dostępności", "produkt chwilowo niedostępny"]
             for kw in keywords_unavailable:
                 if kw in text_content:
                     available = False
+                    logger.warning(f"[PARSER] UWAGA! Dostępność zmieniona na Niedostępny przez słowo w tekście strony: '{kw}'")
                     break
 
                 # WYNIK
@@ -428,10 +527,17 @@ def get_current_price(url, session):
             else:
                 final_price = float(price)
             logger.info(f"[SCAN] CENA: {final_price} PLN | {url}")
+            if return_html:
+                return final_price, available, raw_html
             return final_price, available
         else:
             logger.warning(f"[SCAN] BRAK CENY | {url}")
+            if return_html:
+                return None, False, raw_html
             return None, False
+
     except Exception as e:
         logger.error(f"[SCAN] WYJĄTEK: {e} | {url}")
+        if return_html:
+            return None, False, raw_html
         return None, False

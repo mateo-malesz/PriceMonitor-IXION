@@ -2524,69 +2524,6 @@ def project_analysis(project_id):
                            opportunities=opportunities,
                            threats=threats)
 
-# @app.route('/project/<int:project_id>/competitors')
-# @login_required
-# def competitors_list(project_id):
-#     project = Project.query.get_or_404(project_id)
-#     if current_user not in project.users:
-#         flash('Brak dostępu.', category='error')
-#         return redirect(url_for('projects'))
-#
-#     search_query = request.args.get('q', '')
-#     sort_by = request.args.get('sort', 'shared_count')
-#     sort_order = request.args.get('order', 'desc')
-#     page = request.args.get('page', 1, type=int)
-#     view_mode = request.args.get('view', 'grid') # Tryb wyświetlania (grid/list)
-#
-#     from sqlalchemy import func, case, or_
-#
-#     pi_expr = (ProductMapping.last_price / Product.my_price) * 100
-#     shared_count_expr = func.count(Product.id)
-#     avg_pi_expr = func.avg(pi_expr)
-#     cheaper_count_expr = func.sum(case((ProductMapping.last_price < Product.my_price, 1), else_=0))
-#
-#     query = db.session.query(
-#         Shop,
-#         shared_count_expr.label('shared_count'),
-#         avg_pi_expr.label('avg_pi'),
-#         cheaper_count_expr.label('cheaper_count')
-#     ).select_from(ProductMapping).join(Product).join(Shop).filter(
-#         Product.project_id == project.id,
-#         Product.is_active == True,
-#         Product.my_price > 0,
-#         ProductMapping.is_active == True,
-#         ProductMapping.is_available == True,
-#         ProductMapping.last_price > 0,
-#         or_(Product.my_url == None, ProductMapping.url != Product.my_url),
-#         ProductMapping.last_price >= Product.my_price * 0.2,
-#         ProductMapping.last_price <= Product.my_price * 5
-#     )
-#
-#     if search_query:
-#         query = query.filter(
-#             or_(Shop.name.ilike(f'%{search_query}%'), Shop.domain.ilike(f'%{search_query}%'))
-#         )
-#
-#     query = query.group_by(Shop.id)
-#
-#     if sort_by == 'name':
-#         query = query.order_by(Shop.name.desc() if sort_order == 'desc' else Shop.name.asc())
-#     elif sort_by == 'shared_count':
-#         query = query.order_by(shared_count_expr.desc() if sort_order == 'desc' else shared_count_expr.asc())
-#     elif sort_by == 'avg_pi':
-#         query = query.order_by(avg_pi_expr.desc() if sort_order == 'desc' else avg_pi_expr.asc())
-#     elif sort_by == 'cheaper_count':
-#         query = query.order_by(cheaper_count_expr.desc() if sort_order == 'desc' else cheaper_count_expr.asc())
-#
-#     pagination = query.paginate(page=page, per_page=20, error_out=False)
-#     competitor_stats = pagination.items
-#
-#     return render_template('competitors_list.html',
-#                            project=project,
-#                            competitor_stats=competitor_stats,
-#                            pagination=pagination,
-#                            current_filters={'q': search_query, 'sort': sort_by, 'order': sort_order, 'view': view_mode})
-
 @app.route('/project/<int:project_id>/competitors')
 @login_required
 def competitors_list(project_id):
@@ -3404,6 +3341,81 @@ def project_activity(project_id):
     ).order_by(ProductComment.created_at.desc()).paginate(page=page, per_page=15, error_out=False)
 
     return render_template('activity.html', project=project, pagination=pagination)
+
+
+import logging
+
+
+class StringCaptureHandler(logging.Handler):
+    """Pomocnicza klasa do przechwytywania logów w locie."""
+
+    def __init__(self):
+        super().__init__()
+        self.logs = []
+
+    def emit(self, record):
+        # Formatujemy log (np. INFO: [SCAN] START: https...)
+        self.logs.append(self.format(record))
+
+
+@app.route('/tools/debugger', methods=['GET', 'POST'])
+@login_required
+def scraper_debugger():
+    # Opcjonalnie: upewnij się, że tylko admin ma tu dostęp
+    # if current_user.email != os.getenv('ADMIN_EMAIL'):
+    #     return redirect(url_for('home'))
+
+    debug_info = None
+
+    if request.method == 'POST':
+        test_url = request.form.get('url')
+
+        if test_url:
+            # 1. Konfiguracja "łapacza" logów
+            capture_handler = StringCaptureHandler()
+            capture_handler.setFormatter(logging.Formatter('%(levelname)s - %(message)s'))
+
+            # Pobieramy logger z pliku scraper.py (jego nazwa to 'scraper')
+            scraper_logger = logging.getLogger('scraper')
+            scraper_logger.addHandler(capture_handler)
+
+            # Wymuszamy poziom DEBUG, żeby widzieć wszystko
+            old_level = scraper_logger.level
+            scraper_logger.setLevel(logging.DEBUG)
+
+            try:
+                # 2. Inicjalizacja Twojej sesji (NordVPN + User-Agents)
+                session = init_batch_session()
+
+                # 3. Odpalenie głównej funkcji
+                # Odbieramy 3 zmienne, wymuszając tryb debug
+                price, is_available, raw_html = get_current_price(test_url, session, return_html=True)
+
+                # 4. Zamknięcie sesji
+                close_batch_session(session)
+
+                debug_info = {
+                    'url': test_url,
+                    'price': price,
+                    'available': is_available,
+                    'logs': capture_handler.logs,
+                    'html': raw_html,
+                    'error': None
+                }
+            except Exception as e:
+                debug_info = {
+                    'url': test_url,
+                    'price': None,
+                    'available': None,
+                    'logs': capture_handler.logs,
+                    'error': str(e)
+                }
+            finally:
+                # 5. Sprzątanie (żeby nie logować wszystkiego podwójnie do pliku)
+                scraper_logger.removeHandler(capture_handler)
+                scraper_logger.setLevel(old_level)
+
+    return render_template('debugger.html', debug_info=debug_info)
 
 @app.route('/project/<int:project_id>/overview')
 @login_required

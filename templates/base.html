@@ -163,6 +163,7 @@ aria-expanded="{% if request.endpoint in ['project_analysis', 'project_margin', 
                     </a>
                     <ul class="dropdown-menu text-small shadow">
                         <li><a class="dropdown-item" href="{{ url_for('projects') }}">Moje projekty</a></li>
+                        <li><a class="dropdown-item" href="{{ url_for('scraper_debugger') }}">Scraper Debugger</a></li>
                         <li><hr class="dropdown-divider"></li>
                         <li><a class="dropdown-item" href="{{ url_for('logout') }}">Wyloguj się</a></li>
                     </ul>

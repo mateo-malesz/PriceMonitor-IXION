@@ -1,0 +1,87 @@
+{% extends 'base.html' %}
+{% block title %}🛠️ Scraper Debugger{% endblock %}
+{% block content %}
+<div class="container mt-4">
+    <h2>🛠️ Scraper Debugger</h2>
+    <p class="text-muted">Wklej link do sklepu konkurencji, aby prześledzić na żywo proces pobierania ceny i wykryć blokady (np. błąd 403, Cloudflare).</p>
+
+    <div class="card shadow-sm mb-4">
+        <div class="card-body">
+            <form method="POST">
+                <div class="input-group">
+                    <input type="url" name="url" class="form-control" placeholder="https://sklep-konkurencji.pl/produkt..." required value="{{ debug_info.url if debug_info else '' }}">
+                    <button class="btn btn-primary" type="submit">Testuj Link</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    {% if debug_info %}
+        <div class="card shadow-sm">
+            <div class="card-header bg-dark text-white">
+                Wynik testu
+            </div>
+            <div class="card-body">
+                <div class="row mb-3">
+                    <div class="col-md-4">
+                        <strong>Cena końcowa:</strong> 
+                        {% if debug_info.price %}
+                            <span class="badge bg-success" style="font-size: 16px;">{{ debug_info.price }} PLN</span>
+                        {% else %}
+                            <span class="badge bg-danger" style="font-size: 16px;">Brak ceny</span>
+                        {% endif %}
+                    </div>
+                    <div class="col-md-4">
+                        <strong>Dostępność:</strong> 
+                        {% if debug_info.available == True %}
+                            <span class="text-success fw-bold">Dostępny</span>
+                        {% elif debug_info.available == False %}
+                            <span class="text-danger fw-bold">Niedostępny</span>
+                        {% else %}
+                            <span class="text-warning">Nie dotyczy / Błąd</span>
+                        {% endif %}
+                    </div>
+                </div>
+
+                {% if debug_info.error %}
+                    <div class="alert alert-danger">
+                        <strong>Wyjątek w kodzie:</strong> {{ debug_info.error }}
+                    </div>
+                {% endif %}
+
+                <h5 class="mt-4">Ślad (Trace logs):</h5>
+                <div class="bg-light p-3 border rounded" style="max-height: 400px; overflow-y: auto; font-family: monospace; font-size: 13px;">
+                    {% for log in debug_info.logs %}
+                        {% if 'BŁĄD' in log or 'error' in log.lower() or 'CRITICAL' in log %}
+                            <div class="text-danger">{{ log }}</div>
+                        {% elif 'WARNING' in log or '[!]' in log %}
+                            <div class="text-warning">{{ log }}</div>
+                        {% else %}
+                            <div class="text-muted">{{ log }}</div>
+                        {% endif %}
+                    {% else %}
+                        Brak logów z przebiegu scrapera.
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    {% endif %}
+{% if debug_info.html %}
+    <h5 class="mt-4">Surowy kod HTML zwrócony przez sklep:</h5>
+    <div class="accordion" id="htmlAccordion">
+        <div class="accordion-item">
+            <h2 class="accordion-header" id="headingHtml">
+                <button class="accordion-button collapsed bg-light text-dark fw-bold border" type="button" data-bs-toggle="collapse" data-bs-target="#collapseHtml" aria-expanded="false" aria-controls="collapseHtml">
+                    Kliknij, aby rozwinąć kod źródłowy ({% if debug_info.html|length > 0 %}{{ (debug_info.html|length / 1024)|round(1) }} KB{% else %}Puste{% endif %})
+                </button>
+            </h2>
+            <div id="collapseHtml" class="accordion-collapse collapse" aria-labelledby="headingHtml" data-bs-parent="#htmlAccordion">
+                <div class="accordion-body p-0">
+                    <textarea class="form-control text-muted" style="font-family: monospace; font-size: 12px; border-radius: 0; border: none; resize: vertical;" rows="25" readonly>{{ debug_info.html }}</textarea>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endif %}
+</div>
+{% endblock %}
