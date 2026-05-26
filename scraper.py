@@ -123,17 +123,16 @@ def get_current_price(url, session, return_html=False):
             logger.error(f"[SCAN] BŁĄD POŁĄCZENIA: {e} | {url}")
             error_str = str(e).lower()
             # Wkracza curl_cffi TYLKO dla błędów SSL/EOF lub zerwanego połączenia
-            if 'ssl' in error_str or 'eof' in error_str or 'connection' in error_str:
-                logger.warning(f"[!] Wykryto twardą blokadę SSL. Wytaczam superbroń: curl_cffi (impersonate=chrome)...")
+            if 'ssl' in error_str or 'eof' in error_str or 'connection' in error_str or 'timeout' in error_str:
+                logger.warning(
+                    f"[!] Wykryto twardą blokadę (SSL/Timeout). Wytaczam superbroń: curl_cffi (impersonate=chrome)...")
 
-                # Wyciągamy aktualne proxy z sesji, żeby curl_cffi wiedział, jak się połączyć
+                # Wyciągamy aktualne proxy z sesji
                 current_proxies = None
                 if session.proxies and 'https' in session.proxies:
                     current_proxies = {"http": session.proxies['http'], "https": session.proxies['https']}
 
                 try:
-                    # Odpalamy zapytanie udające idealnie przeglądarkę Chrome
-                    # curl_cffi ma świetnie zaimplementowane timeouty na poziomie języka C, więc nie musimy używać fetch_with_hard_timeout
                     response = curl_requests.get(
                         url,
                         impersonate="chrome110",
@@ -147,7 +146,7 @@ def get_current_price(url, session, return_html=False):
                     if return_html: return None, False, raw_html
                     return None, False
             else:
-                # To był zwykły błąd, a nie blokada SSL
+                # To był zwykły błąd, a nie blokada SSL/Timeout
                 logger.error(f"[SCAN] BŁĄD POŁĄCZENIA: {e} | {url}")
                 if return_html: return None, False, raw_html
                 return None, False
@@ -440,8 +439,15 @@ def get_current_price(url, session, return_html=False):
             elif 'pomocedydaktyczne.eu' in url:
                 price_element = soup.find('span', class_='brutto')
                 if price_element:
+                    # Wyrywamy starą (przekreśloną) cenę z HTMLa, jeśli istnieje, żeby nie złączyła się z nową
+                    old_price_tag = price_element.find('s')
+                    if old_price_tag:
+                        old_price_tag.extract()
+
                     raw_price = price_element.text.strip()
-                    if raw_price: price = raw_price
+                    if raw_price:
+                        price = raw_price
+                        logger.info(f"[PARSER] Trafienie: Fallback (pomocedydaktyczne.eu) -> {price}")
             elif 'akademia-umyslu.pl' in url:
                 # PLAN A: Szukamy wszystkich ukrytych wariantów i bierzemy najtańszy
                 variant_inputs = soup.find_all('input', class_='version_price')
@@ -523,6 +529,8 @@ def get_current_price(url, session, return_html=False):
                 try:
                     final_price = float(clean_price)
                 except ValueError:
+                    logger.error(f"[SCAN] Błąd konwersji ceny na ułamek. Oczyszczony tekst: '{clean_price}'")
+                    if return_html: return None, False, raw_html
                     return None, False
             else:
                 final_price = float(price)
