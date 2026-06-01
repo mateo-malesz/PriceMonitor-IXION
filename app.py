@@ -3191,7 +3191,7 @@ def add_product_comment(project_id, product_id):
         db.session.commit()
 
         # Przygotowanie i wysyłka maila w tle
-        APP_URL = os.environ.get('APP_URL', 'http://127.0.0.1:5005')
+        APP_URL = os.environ.get('APP_URL', 'http://192.168.24.112:5005')
         recipient = app.config.get('MAIL_RECIPIENT') or app.config['MAIL_DEFAULT_SENDER']
         msg = Message(f"Nowy komentarz do: {product.title}", recipients=[recipient])
 
